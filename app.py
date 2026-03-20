@@ -27,7 +27,7 @@ FAVORITE_ADDRESSES = {
     "IKO": {"country": "일본", "zip": "1088586"}
 }
 
-# 2. 유류할증료 로드 (최초 1회만 실행되도록 세션 활용)
+# 2. 유류할증료 로드 함수
 def get_fedex_fuel_surcharge():
     url = "https://www.fedex.com/ko-kr/shipping/surcharges/fuel-surcharge.html"
     try:
@@ -48,7 +48,7 @@ def get_us_zone(zip_code):
         return "존 E" if prefix in western else "존 F"
     except: return "존 F"
 
-# 3. 데이터 로드 (원본 보존을 위해 copy 사용 안 함, 오직 읽기만 수행)
+# 3. 데이터 로드 (원본 보존)
 @st.cache_data
 def load_data():
     if not os.path.exists(FILE_NAME): return None
@@ -74,14 +74,12 @@ df = load_data()
 if df is None:
     st.error(f"❌ '{FILE_NAME}' 파일을 찾을 수 없습니다.")
 else:
-    # 세션 상태에 유류할증료 초기화 (새로고침 시에만 갱신)
     if 'current_fuel_rate' not in st.session_state:
         st.session_state.current_fuel_rate = get_fedex_fuel_surcharge()
 
     selected_addr = st.selectbox("📌 자주 쓰는 주소 선택", list(FAVORITE_ADDRESSES.keys()))
     addr_info = FAVORITE_ADDRESSES[selected_addr]
 
-    # 입력 폼
     with st.form("calc_form", clear_on_submit=False):
         c1, c2 = st.columns(2)
         with c1:
@@ -96,25 +94,23 @@ else:
         
         submitted = st.form_submit_button("운임 계산 실행")
 
-    # 계산 로직 (폼 제출 시에만 실행)
     if submitted:
-        # 지역 판별
         target_zone = COUNTRY_ZONE_MAP[country_input]
         if zip_input and country_input == "미국":
             target_zone = get_us_zone(zip_input)
         
         up_weight = math.ceil(weight_input * 2) / 2
         
-        # 데이터 매칭 (원본 보존을 위해 iloc으로 값만 추출)
         final_base_price = 0
         method = ""
-        
         match_found = False
+        
         for i in range(len(df)):
+            # 💡 [수정된 부분] w_val로 통일하여 NameError 방지
             w_val = str(df.loc[i, '중량(kg)'])
             
             # 1. 숫자 우선 매칭
-            if w_val == str(int(up_weight)) or w_text == str(up_weight):
+            if w_val == str(int(up_weight)) or w_val == str(up_weight):
                 final_base_price = float(df.loc[i, target_zone])
                 method = "고정 운임 적용"
                 match_found = True
@@ -133,7 +129,6 @@ else:
                 except: continue
 
         if match_found:
-            # 출력용 변수 계산 (기존 데이터프레임 절대 안 건드림)
             f_val = final_base_price * (fuel_input / 100)
             total = final_base_price + f_val
             
@@ -141,7 +136,7 @@ else:
             st.success(f"### 결과: {country_input}")
             res_c1, res_c2 = st.columns(2)
             res_c1.write(f"기본 운임: **{int(final_base_price):,.0f}원**")
-            res_c2.write(f"유류 할증료: **{int(f_val):,.0f}원**")
+            res_c2.write(f"유류 할증료 ({fuel_input}%): **{int(f_val):,.0f}원**")
             st.markdown(f"## 총 합계: **{int(total):,.0f}원**")
             st.divider()
             st.caption(f"기준: {target_zone} / {method}")
