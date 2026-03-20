@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 
 # CSV 파일 경로 (파일이 app.py와 같은 폴더에 있어야 합니다)
-file_path = '2026 FEDEX 항공운임 예상.xlsx - FedEx 요금표 2026.csv'
+file_path = '2026 FEDEX.csv'
 
 def load_data():
     # 1. 상단 3행을 제외하고 읽어오기 (4행이 컬럼명이 됩니다)
