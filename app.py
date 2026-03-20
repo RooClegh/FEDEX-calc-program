@@ -10,7 +10,7 @@ from datetime import datetime
 # 1. 설정 및 파일 경로
 FILE_NAME = 'fedex_2026.csv' 
 
-# [국가별 대표 존 매핑] ZIP CODE가 없을 때 기본으로 사용할 존입니다.
+# [국가별 대표 존 매핑]
 COUNTRY_ZONE_MAP = {
     "중국(남부)": "존 A", "홍콩": "존 A", "대만": "존 A",
     "일본": "존 B",
@@ -113,7 +113,7 @@ else:
         calc_btn = st.form_submit_button("운임 계산 실행")
 
     if calc_btn:
-        # 로직 변경 포인트: ZIP CODE가 있으면 ZIP CODE 기반, 없으면 국가 기반
+        # Zone 판별
         if zip_input and country == "미국":
             target_zone = get_us_zone(zip_input)
             zone_info_msg = f"미국 ZIP CODE({zip_input}) 기반"
@@ -122,12 +122,35 @@ else:
             zone_info_msg = f"{country} 국가 기본"
 
         up_weight = math.ceil(weight_input * 2) / 2
-        w_str = str(int(up_weight)) if up_weight % 1 == 0 else str(up_weight)
         
-        match_row = df[df['중량(kg)'].str.fullmatch(w_str, na=False)]
+        # 💡 [핵심 수정] 중량 매칭 로직 강화 (단일 숫자 OR 범위 검색)
+        match_row = pd.DataFrame()
         
+        for idx, row in df.iterrows():
+            weight_val = str(row['중량(kg)'])
+            
+            # 1. 정확히 숫자가 일치할 때 (예: "60" == "60")
+            if weight_val == str(int(up_weight)) or weight_val == str(up_weight):
+                match_row = df.iloc[[idx]]
+                break
+            
+            # 2. 범위로 되어 있을 때 (예: "31-70" 안에 60이 포함되는지 확인)
+            if '-' in weight_val:
+                try:
+                    start, end = map(float, weight_val.split('-'))
+                    if start <= up_weight <= end:
+                        match_row = df.iloc[[idx]]
+                        break
+                except:
+                    continue
+
         if not match_row.empty:
             base_val = match_row.iloc[0][target_zone]
+            
+            # 💡 [참고] 대형 화물의 경우 요금표가 'kg당 단가'일 수도 있습니다.
+            # 만약 결과값이 너무 작게 나오면 (예: 5,000원) base_val * up_weight로 수정해야 합니다.
+            # 여기서는 우선 요금표에 적힌 금액 그대로 가져옵니다.
+            
             fuel_val = int(base_val * (fuel_rate / 100))
             total_val = base_val + fuel_val
             
@@ -141,10 +164,10 @@ else:
             st.markdown(f"## 총 합계: **{total_val:,.0f}원**")
             
             st.divider()
-            st.caption(f"운임 기준: {zone_info_msg} 요금 적용")
+            st.caption(f"운임 기준: {zone_info_msg} 요금 적용 (중량 구간: {match_row.iloc[0]['중량(kg)']}kg)")
             st.caption(f"유류할증료는 주마다 업데이트 되니, 오류 방지를 위해 사이트에서 재확인 해주세요. [FEDEX 공식 사이트](https://www.fedex.com/ko-kr/shipping/surcharges.html)")
         else:
-            st.error(f"데이터를 찾을 수 없습니다. (입력 중량: {up_weight}kg)")
+            st.error(f"요금표에서 중량 {up_weight}kg에 해당하는 데이터를 찾을 수 없습니다.")
 
 st.markdown("---")
 st.caption("© 2026 Dongmyeong Bearing AI Task Force Team")
