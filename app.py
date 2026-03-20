@@ -75,11 +75,9 @@ else:
     if 'current_fuel_rate' not in st.session_state:
         st.session_state.current_fuel_rate = get_fedex_fuel_surcharge()
 
-    # 💡 자주 쓰는 주소를 폼 내부가 아닌 외부에서 먼저 정의
     selected_addr = st.selectbox("📌 자주 쓰는 주소 선택", list(FAVORITE_ADDRESSES.keys()))
     addr_info = FAVORITE_ADDRESSES[selected_addr]
 
-    # 💡 폼 제출 시 값을 명확히 가두기 위해 st.form 사용
     with st.form("calc_form"):
         c1, c2 = st.columns(2)
         with c1:
@@ -92,56 +90,54 @@ else:
             weight_input = st.number_input("📦 화물 중량 (kg)", min_value=0.5, step=0.5, value=1.0)
             fuel_input = st.number_input("⛽ 적용 유류할증료 (%)", value=st.session_state.current_fuel_rate, step=0.01)
         
-        # 버튼을 눌러야만 모든 값이 final_ 변수들에 담겨 계산됨
         submitted = st.form_submit_button("운임 계산 실행")
 
     if submitted:
-        # 모든 값을 계산 시점에 고정
-        f_country = country_input
-        f_zip = zip_input
-        f_weight = weight_input
-        f_fuel = fuel_input
+        target_zone = COUNTRY_ZONE_MAP[country_input]
+        if zip_input and country_input == "미국":
+            target_zone = get_us_zone(zip_input)
         
-        target_zone = COUNTRY_ZONE_MAP[f_country]
-        if f_zip and f_country == "미국":
-            target_zone = get_us_zone(f_zip)
-        
-        up_weight = math.ceil(f_weight * 2) / 2
+        up_weight = math.ceil(weight_input * 2) / 2
         
         final_base_price = 0
         method = ""
         match_found = False
         
-        # 원본 데이터 df에서 값만 추출
+        # 💡 [핵심 해결 로직] 1단계: 정확한 중량 매칭부터 수행
         for i in range(len(df)):
             w_val = str(df.loc[i, '중량(kg)'])
-            
             if w_val == str(int(up_weight)) or w_val == str(up_weight):
                 final_base_price = float(df.loc[i, target_zone])
-                method = "고정 운임 적용"
+                method = "중량별 고정 운임 적용"
                 match_found = True
                 break
-                
-            if '-' in w_val:
-                try:
-                    s, e = map(float, w_val.split('-'))
-                    if s <= up_weight <= e:
-                        unit_p = float(df.loc[i, target_zone])
-                        final_base_price = unit_p * up_weight
-                        method = f"kg당 단가({unit_p:,.0f}원) 적용"
-                        match_found = True
-                        break
-                except: continue
+        
+        # 💡 2단계: 1단계에서 못 찾았을 때만 범위 구간 탐색
+        if not match_found:
+            for i in range(len(df)):
+                w_val = str(df.loc[i, '중량(kg)'])
+                if '-' in w_val:
+                    try:
+                        s, e = map(float, w_val.split('-'))
+                        if s <= up_weight <= e:
+                            unit_p = float(df.loc[i, target_zone])
+                            final_base_price = unit_p * up_weight
+                            method = f"중량 구간 단가(kg당 {unit_p:,.0f}원) 적용"
+                            match_found = True
+                            break
+                    except: continue
 
         if match_found:
-            f_val = final_base_price * (f_fuel / 100)
+            # 💡 값 복사 방지를 위해 변수를 계산 시점에만 사용
+            calc_fuel = fuel_input
+            f_val = final_base_price * (calc_fuel / 100)
             total = final_base_price + f_val
             
             st.balloons()
-            st.success(f"### 결과: {selected_addr} ({f_country})")
+            st.success(f"### 결과: {selected_addr} ({country_input})")
             res_c1, res_c2 = st.columns(2)
             res_c1.write(f"기본 운임: **{int(final_base_price):,.0f}원**")
-            res_c2.write(f"유류 할증료 ({f_fuel}%): **{int(f_val):,.0f}원**")
+            res_c2.write(f"유류 할증료 ({calc_fuel}%): **{int(f_val):,.0f}원**")
             st.markdown(f"## 총 합계: **{int(total):,.0f}원**")
             st.divider()
             st.caption(f"기준: {target_zone} / {method}")
