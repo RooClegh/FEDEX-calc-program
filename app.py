@@ -10,7 +10,7 @@ from datetime import datetime
 # 1. 설정 및 파일 경로
 FILE_NAME = 'fedex_2026.csv' 
 
-# [국가별 대표 존 매핑]
+# [국가별 대표 존 매핑] 우편번호가 없을 때 사용하는 기본 존
 COUNTRY_ZONE_MAP = {
     "중국(남부)": "존 A", "홍콩": "존 A", "대만": "존 A",
     "일본": "존 B",
@@ -70,12 +70,9 @@ def get_us_zone(zip_code):
 @st.cache_data
 def load_data():
     if not os.path.exists(FILE_NAME): return None
-    # 원본 파일 로드
     raw_df = pd.read_csv(FILE_NAME, skiprows=3)
-    # 컬럼 정리
     raw_df.columns = raw_df.columns.str.replace(r'\s+', ' ', regex=True).str.strip()
     
-    # 데이터 정리 (복사본 생성하여 안전하게 처리)
     clean_df = raw_df.copy()
     zone_cols = [c for c in clean_df.columns if '존' in c]
     for col in zone_cols:
@@ -87,29 +84,34 @@ def load_data():
     
     return clean_df
 
-# --- UI 레이아웃 ---
+# --- UI 레이아웃 설정 ---
 st.set_page_config(page_title="항공 운임 예측 계산기", layout="centered", initial_sidebar_state="collapsed")
 
+# 상단 제목 및 회사 정보
 st.title("✈️ 항공 운임 예측 계산기")
 st.caption("본 계산기는 FEDEX 운임표를 기반으로 작성되었으며, 실제 운임과 다를 수 있습니다.")
 st.caption("🏢 도착지: 부산광역시 사상구 새벽로215번길 123 동명베아링")
 
-# 데이터 로드 (캐싱 사용)
+# 데이터 로딩
 df = load_data()
 
 if df is None:
     st.error(f"❌ '{FILE_NAME}' 파일을 찾을 수 없습니다.")
 else:
+    # 기본 데이터 준비
     current_fuel = get_fedex_fuel_surcharge()
     selected_addr = st.selectbox("📌 자주 쓰는 주소 선택", list(FAVORITE_ADDRESSES.keys()))
     addr_info = FAVORITE_ADDRESSES[selected_addr]
 
+    # 입력 폼
     with st.form("main_form"):
         col1, col2 = st.columns(2)
         with col1:
             country_list = sorted(list(COUNTRY_ZONE_MAP.keys()))
-            try: c_idx = country_list.index(addr_info["country"])
-            except: c_idx = 0
+            try:
+                c_idx = country_list.index(addr_info["country"])
+            except:
+                c_idx = 0
             country = st.selectbox("🌐 출발 국가", country_list, index=c_idx)
             zip_input = st.text_input("📍 출발지 ZIP CODE (공란일 경우 국가 기준 계산)", value=addr_info["zip"])
         with col2:
@@ -119,8 +121,9 @@ else:
         
         calc_btn = st.form_submit_button("운임 계산 실행")
 
-    # 계산 로직 (원본 데이터 df를 직접 수정하지 않음)
+    # 계산 실행 로직
     if calc_btn:
+        # 1. 존(Zone) 판별
         if zip_input and country == "미국":
             target_zone = get_us_zone(zip_input)
             zone_info_msg = f"미국 ZIP CODE({zip_input}) 기반"
@@ -128,21 +131,23 @@ else:
             target_zone = COUNTRY_ZONE_MAP[country]
             zone_info_msg = f"{country} 국가 기본"
 
+        # 2. 중량 올림 처리 (0.5kg 단위)
         up_weight = math.ceil(weight_input * 2) / 2
         
         match_row = None
-        is_range_price = False
+        is_range_price = False # 범위 구간('-') 인지 여부 확인용
         
-        # 행을 순회하며 매칭되는 구간 찾기
+        # 3. 데이터 매칭 (원본 df를 보존하기 위해 루프 사용)
         for i in range(len(df)):
             weight_val = str(df.loc[i, '중량(kg)'])
             
-            # 1. 단일 중량 일치 확인
+            # (A) 숫자가 정확히 일치하는 행을 우선 탐색
             if weight_val == str(int(up_weight)) or weight_val == str(up_weight):
                 match_row = df.iloc[i]
+                is_range_price = False
                 break
             
-            # 2. 범위 중량 확인
+            # (B) 정확히 일치하는 숫자가 없으면 범위 구간('-') 탐색
             if '-' in weight_val:
                 try:
                     start, end = map(float, weight_val.split('-'))
@@ -150,18 +155,19 @@ else:
                         match_row = df.iloc[i]
                         is_range_price = True
                         break
-                except: continue
+                except:
+                    continue
 
+        # 4. 결과 출력
         if match_row is not None:
-            # 원본 값을 가져와서 새 변수에 할당 (df[target_zone]을 직접 수정하지 않음!)
-            raw_unit_price = int(match_row[target_zone])
+            raw_unit_value = int(match_row[target_zone])
             
-            # 고중량 구간(21kg 이상 또는 범위 구간) 단가 계산
-            if is_range_price or up_weight > 20:
-                base_val = int(raw_unit_price * up_weight)
-                calc_method_msg = f"중량 구간 단가(kg당 {raw_unit_price:,.0f}원) 적용"
+            # 범위 구간이거나 고정 요금이 없는 대형 화물 구간만 단가 계산 적용
+            if is_range_price:
+                base_val = int(raw_unit_value * up_weight)
+                calc_method_msg = f"중량 구간 단가(kg당 {raw_unit_value:,.0f}원) 적용"
             else:
-                base_val = raw_unit_price
+                base_val = raw_unit_value
                 calc_method_msg = "중량별 고정 운임 적용"
             
             fuel_val = int(base_val * (fuel_rate / 100))
@@ -180,8 +186,9 @@ else:
             st.caption(f"운임 기준: {zone_info_msg} / {calc_method_msg}")
             st.caption(f"유류할증료는 주마다 업데이트 되니, 오류 방지를 위해 사이트에서 재확인 해주세요. [FEDEX 공식 사이트](https://www.fedex.com/ko-kr/shipping/surcharges.html)")
         else:
-            st.error(f"데이터를 찾을 수 없습니다.")
+            st.error(f"요금표에서 중량 {up_weight}kg에 해당하는 데이터를 찾을 수 없습니다.")
 
+# 하단 정보
 st.markdown("---")
 st.caption("© 2026 Dongmyeong Bearing AI Task Force Team")
 st.caption("제작: AI TFT 서주영 대리")
