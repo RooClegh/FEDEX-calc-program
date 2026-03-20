@@ -27,7 +27,7 @@ FAVORITE_ADDRESSES = {
     "IKO": {"country": "일본", "zip": "1088586"}
 }
 
-# 2. 유류할증료 로드 함수
+# 2. 유류할증료 로드
 def get_fedex_fuel_surcharge():
     url = "https://www.fedex.com/ko-kr/shipping/surcharges/fuel-surcharge.html"
     try:
@@ -48,7 +48,6 @@ def get_us_zone(zip_code):
         return "존 E" if prefix in western else "존 F"
     except: return "존 F"
 
-# 3. 데이터 로드 (원본 보존)
 @st.cache_data
 def load_data():
     if not os.path.exists(FILE_NAME): return None
@@ -63,10 +62,9 @@ def load_data():
     return df
 
 # --- UI 레이아웃 ---
-st.set_page_config(page_title="항공 운임 예측 계산기", layout="centered", initial_sidebar_state="collapsed")
+st.set_page_config(page_title="항공 운임 예측 계산기", layout="centered")
 
 st.title("✈️ 항공 운임 예측 계산기")
-st.caption("본 계산기는 FEDEX 운임표를 기반으로 작성되었으며, 실제 운임과 다를 수 있습니다.")
 st.caption("🏢 도착지: 부산광역시 사상구 새벽로215번길 123 동명베아링")
 
 df = load_data()
@@ -77,10 +75,12 @@ else:
     if 'current_fuel_rate' not in st.session_state:
         st.session_state.current_fuel_rate = get_fedex_fuel_surcharge()
 
+    # 💡 자주 쓰는 주소를 폼 내부가 아닌 외부에서 먼저 정의
     selected_addr = st.selectbox("📌 자주 쓰는 주소 선택", list(FAVORITE_ADDRESSES.keys()))
     addr_info = FAVORITE_ADDRESSES[selected_addr]
 
-    with st.form("calc_form", clear_on_submit=False):
+    # 💡 폼 제출 시 값을 명확히 가두기 위해 st.form 사용
+    with st.form("calc_form"):
         c1, c2 = st.columns(2)
         with c1:
             country_list = sorted(list(COUNTRY_ZONE_MAP.keys()))
@@ -92,31 +92,36 @@ else:
             weight_input = st.number_input("📦 화물 중량 (kg)", min_value=0.5, step=0.5, value=1.0)
             fuel_input = st.number_input("⛽ 적용 유류할증료 (%)", value=st.session_state.current_fuel_rate, step=0.01)
         
+        # 버튼을 눌러야만 모든 값이 final_ 변수들에 담겨 계산됨
         submitted = st.form_submit_button("운임 계산 실행")
 
     if submitted:
-        target_zone = COUNTRY_ZONE_MAP[country_input]
-        if zip_input and country_input == "미국":
-            target_zone = get_us_zone(zip_input)
+        # 모든 값을 계산 시점에 고정
+        f_country = country_input
+        f_zip = zip_input
+        f_weight = weight_input
+        f_fuel = fuel_input
         
-        up_weight = math.ceil(weight_input * 2) / 2
+        target_zone = COUNTRY_ZONE_MAP[f_country]
+        if f_zip and f_country == "미국":
+            target_zone = get_us_zone(f_zip)
+        
+        up_weight = math.ceil(f_weight * 2) / 2
         
         final_base_price = 0
         method = ""
         match_found = False
         
+        # 원본 데이터 df에서 값만 추출
         for i in range(len(df)):
-            # 💡 [수정된 부분] w_val로 통일하여 NameError 방지
             w_val = str(df.loc[i, '중량(kg)'])
             
-            # 1. 숫자 우선 매칭
             if w_val == str(int(up_weight)) or w_val == str(up_weight):
                 final_base_price = float(df.loc[i, target_zone])
                 method = "고정 운임 적용"
                 match_found = True
                 break
                 
-            # 2. 범위 매칭
             if '-' in w_val:
                 try:
                     s, e = map(float, w_val.split('-'))
@@ -129,14 +134,14 @@ else:
                 except: continue
 
         if match_found:
-            f_val = final_base_price * (fuel_input / 100)
+            f_val = final_base_price * (f_fuel / 100)
             total = final_base_price + f_val
             
             st.balloons()
-            st.success(f"### 결과: {country_input}")
+            st.success(f"### 결과: {selected_addr} ({f_country})")
             res_c1, res_c2 = st.columns(2)
             res_c1.write(f"기본 운임: **{int(final_base_price):,.0f}원**")
-            res_c2.write(f"유류 할증료 ({fuel_input}%): **{int(f_val):,.0f}원**")
+            res_c2.write(f"유류 할증료 ({f_fuel}%): **{int(f_val):,.0f}원**")
             st.markdown(f"## 총 합계: **{int(total):,.0f}원**")
             st.divider()
             st.caption(f"기준: {target_zone} / {method}")
