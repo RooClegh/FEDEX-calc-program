@@ -70,15 +70,22 @@ def get_us_zone(zip_code):
 @st.cache_data
 def load_data():
     if not os.path.exists(FILE_NAME): return None
-    df = pd.read_csv(FILE_NAME, skiprows=3)
-    df.columns = df.columns.str.replace(r'\s+', ' ', regex=True).str.strip()
-    zone_cols = [c for c in df.columns if '존' in c]
+    # 원본 파일 로드
+    raw_df = pd.read_csv(FILE_NAME, skiprows=3)
+    # 컬럼 정리
+    raw_df.columns = raw_df.columns.str.replace(r'\s+', ' ', regex=True).str.strip()
+    
+    # 데이터 정리 (복사본 생성하여 안전하게 처리)
+    clean_df = raw_df.copy()
+    zone_cols = [c for c in clean_df.columns if '존' in c]
     for col in zone_cols:
-        df[col] = df[col].astype(str).str.replace(',', '').str.strip()
-        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
-    if '중량(kg)' in df.columns:
-        df['중량(kg)'] = df['중량(kg)'].astype(str).str.replace(r'\s+', '', regex=True).str.strip()
-    return df
+        clean_df[col] = clean_df[col].astype(str).str.replace(',', '').str.strip()
+        clean_df[col] = pd.to_numeric(clean_df[col], errors='coerce').fillna(0).astype(int)
+    
+    if '중량(kg)' in clean_df.columns:
+        clean_df['중량(kg)'] = clean_df['중량(kg)'].astype(str).str.replace(r'\s+', '', regex=True).str.strip()
+    
+    return clean_df
 
 # --- UI 레이아웃 ---
 st.set_page_config(page_title="항공 운임 예측 계산기", layout="centered", initial_sidebar_state="collapsed")
@@ -87,6 +94,7 @@ st.title("✈️ 항공 운임 예측 계산기")
 st.caption("본 계산기는 FEDEX 운임표를 기반으로 작성되었으며, 실제 운임과 다를 수 있습니다.")
 st.caption("🏢 도착지: 부산광역시 사상구 새벽로215번길 123 동명베아링")
 
+# 데이터 로드 (캐싱 사용)
 df = load_data()
 
 if df is None:
@@ -111,6 +119,7 @@ else:
         
         calc_btn = st.form_submit_button("운임 계산 실행")
 
+    # 계산 로직 (원본 데이터 df를 직접 수정하지 않음)
     if calc_btn:
         if zip_input and country == "미국":
             target_zone = get_us_zone(zip_input)
@@ -121,34 +130,38 @@ else:
 
         up_weight = math.ceil(weight_input * 2) / 2
         
-        # 중량 매칭 로직
-        match_row = pd.DataFrame()
-        is_range_price = False # 범위 단가(kg당 단가) 여부 확인용
+        match_row = None
+        is_range_price = False
         
-        for idx, row in df.iterrows():
-            weight_val = str(row['중량(kg)'])
+        # 행을 순회하며 매칭되는 구간 찾기
+        for i in range(len(df)):
+            weight_val = str(df.loc[i, '중량(kg)'])
+            
+            # 1. 단일 중량 일치 확인
             if weight_val == str(int(up_weight)) or weight_val == str(up_weight):
-                match_row = df.iloc[[idx]]
+                match_row = df.iloc[i]
                 break
+            
+            # 2. 범위 중량 확인
             if '-' in weight_val:
                 try:
                     start, end = map(float, weight_val.split('-'))
                     if start <= up_weight <= end:
-                        match_row = df.iloc[[idx]]
-                        is_range_price = True # 범위 구간은 kg당 단가로 처리
+                        match_row = df.iloc[i]
+                        is_range_price = True
                         break
                 except: continue
 
-        if not match_row.empty:
-            raw_val = match_row.iloc[0][target_zone]
+        if match_row is not None:
+            # 원본 값을 가져와서 새 변수에 할당 (df[target_zone]을 직접 수정하지 않음!)
+            raw_unit_price = int(match_row[target_zone])
             
-            # 💡 [핵심 로직 수정] 
-            # 범위 구간(예: 71-99)이거나 중량이 20kg를 초과하는 경우 kg당 단가로 계산
+            # 고중량 구간(21kg 이상 또는 범위 구간) 단가 계산
             if is_range_price or up_weight > 20:
-                base_val = int(raw_val * up_weight)
-                calc_method_msg = f"중량 구간 단가(kg당 {raw_val:,.0f}원) 적용"
+                base_val = int(raw_unit_price * up_weight)
+                calc_method_msg = f"중량 구간 단가(kg당 {raw_unit_price:,.0f}원) 적용"
             else:
-                base_val = raw_val
+                base_val = raw_unit_price
                 calc_method_msg = "중량별 고정 운임 적용"
             
             fuel_val = int(base_val * (fuel_rate / 100))
