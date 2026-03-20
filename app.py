@@ -5,34 +5,54 @@ import math
 import requests
 from bs4 import BeautifulSoup
 import re
+from datetime import datetime
 
-# 1. 설정 및 파일 경로
-FILE_NAME = 'fedex_2026.csv'  # 파일명을 fedex_2026.csv로 변경했는지 확인해주세요!
+# 1. 파일 경로 설정
+FILE_NAME = 'fedex_2026.csv' 
 
-# 2. 실시간 유류할증료 자동 추출 함수
+# 2. 실시간 유류할증료 추출 함수 (날짜 매칭형)
 def get_fedex_fuel_surcharge():
     url = "https://www.fedex.com/ko-kr/shipping/surcharges/fuel-surcharge.html"
     try:
-        # FedEx 사이트에서 수입(ImportOne) 관련 유류할증료 섹션 추출
-        response = requests.get(url, timeout=10)
-        if response.status_code == 200:
-            soup = BeautifulSoup(response.text, 'html.parser')
-            text = soup.get_text()
-            # '수입' 혹은 'Import' 키워드 근처의 % 숫자를 찾는 정규식
-            # 보통 사이트에 24.50% 등으로 표기됨
-            matches = re.findall(r'(\d+\.\d+)%', text)
-            if matches:
-                # 첫 번째 매칭되는 값을 반환 (보통 가장 최신/상단 값)
-                return float(matches[0])
-    except Exception as e:
-        st.sidebar.warning(f"유류할증료 자동 로드 실패: {e}")
-    return 25.0  # 실패 시 기본값
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        response = requests.get(url, headers=headers, timeout=10)
+        if response.status_code != 200:
+            return 41.75 # 실패 시 현재 확인된 값 반환
+            
+        soup = BeautifulSoup(response.text, 'html.parser')
+        today = datetime.now()
+        
+        # 테이블 내 모든 행을 검사하여 오늘 날짜와 매칭되는 할증료 탐색
+        rows = soup.find_all('tr')
+        for row in rows:
+            row_text = row.get_text()
+            if '월' in row_text and '%' in row_text:
+                # 날짜(월/일)와 퍼센트(%) 추출
+                date_match = re.findall(r'(\d+)월\s*(\d+)일', row_text)
+                percent_match = re.search(r'(\d+\.\d+)%', row_text)
+                
+                if date_match and percent_match:
+                    month, day = map(int, date_match[0])
+                    # 사이트 데이터를 현재 연도와 매칭
+                    row_date = datetime(today.year, month, day)
+                    
+                    # 오늘 날짜가 해당 주차(기준일로부터 7일 이내)에 포함되는지 확인
+                    if abs((today - row_date).days) <= 7:
+                        return float(percent_match.group(1))
+        
+        # 날짜 매칭 실패 시 가장 상단의 요율 반환
+        all_rates = re.findall(r'(\d+\.\d+)%', soup.get_text())
+        if all_rates:
+            return float(all_rates[0])
+            
+    except:
+        pass
+    return 41.75 # 최종 예외 발생 시 기본값
 
-# 3. 미국 ZIP CODE 판별 함수 (서부 E / 기타 F)
+# 3. 미국 ZIP CODE 구역 판별 함수
 def get_us_zone(zip_code):
     try:
         prefix = int(str(zip_code)[:3])
-        # FedEx PDF 기준 미국 서부(Western) 우편번호 범위
         western_prefixes = list(range(800, 817)) + list(range(832, 839)) + \
                            list(range(840, 848)) + list(range(850, 866)) + \
                            list(range(889, 899)) + list(range(900, 962)) + \
@@ -41,66 +61,60 @@ def get_us_zone(zip_code):
     except:
         return "존 F"
 
-# 4. 데이터 로드 및 전처리 함수
+# 4. 요금표 데이터 로드 함수
 @st.cache_data
 def load_data():
     if not os.path.exists(FILE_NAME):
         return None
-    
-    # 상단 3행 제목 제외, 4행(index 3)을 헤더로 읽기
     df = pd.read_csv(FILE_NAME, skiprows=3)
     df.columns = df.columns.str.replace('\n', ' ').str.strip()
-    
-    # 요금 데이터 숫자 변환 (존 A ~ 존 J)
     zone_cols = [f'존 {c}' for c in 'ABCDEFGHIJ']
     for col in zone_cols:
         if col in df.columns:
             df[col] = df[col].astype(str).str.replace(',', '').str.strip()
             df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0).astype(int)
-    
     df['중량(kg)'] = df['중량(kg)'].astype(str).str.strip()
     return df
 
-# --- 화면 구성 ---
+# --- 메인 화면 레이아웃 ---
 st.set_page_config(page_title="동명베아링 FedEx 운임계산기", layout="centered")
 
-# 사이드바 정보
+# 사이드바 (도착지 정보 고정)
 with st.sidebar:
-    st.header("🏠 도착지 정보")
+    st.header("🏠 물품 도착지")
     st.info("부산광역시 사상구 새벽로215번길 123\n\n**동명베아링**")
     st.divider()
-    st.caption("개발: AI TFT 서주영 대리")
+    st.caption("Assistant Manager: 서주영 (AI TFT)")
 
-st.title("✈️ FedEx 수입 운임 예측 시스템")
-st.markdown("---")
+st.title("✈️ FedEx 수입 항공운임 계산기")
+st.write("실시간 유류할증료를 반영한 예상 운임을 계산합니다.")
 
 df = load_data()
 
 if df is None:
-    st.error(f"❌ '{FILE_NAME}' 파일을 찾을 수 없습니다. 파일명을 확인해 주세요.")
+    st.error(f"❌ '{FILE_NAME}' 파일을 찾을 수 없습니다. 파일 이름을 확인해 주세요!")
 else:
-    # 실시간 유류할증료 가져오기
-    current_fuel_rate = get_fedex_fuel_surcharge()
+    # 실시간 유류할증료 자동 로드
+    current_fuel = get_fedex_fuel_surcharge()
 
-    # 입력 구역
-    with st.form("calc_form"):
+    with st.form("main_form"):
         col1, col2 = st.columns(2)
         with col1:
-            country = st.selectbox("🌐 출발 국가", ["미국", "일본", "독일", "중국(남부)"])
-            zip_code = st.text_input("📍 출발지 ZIP CODE (필수)", placeholder="예: 90210")
+            country = st.selectbox("🌐 출발 국가 선택", ["미국", "일본", "독일", "중국(남부)"])
+            zip_input = st.text_input("📍 출발지 ZIP CODE", placeholder="예: 90210")
         with col2:
-            weight = st.number_input("📦 예상 중량 (kg)", min_value=0.5, step=0.5, value=1.0)
-            fuel_rate = st.number_input(f"⛽ 유류할증료 (%)", value=current_fuel_rate, step=0.1, help="FedEx 홈페이지에서 실시간으로 불러온 값입니다.")
+            weight_input = st.number_input("📦 화물 중량 (kg)", min_value=0.5, step=0.5, value=1.0)
+            fuel_rate = st.number_input("⛽ 적용 유류할증료 (%)", value=current_fuel, step=0.01)
         
-        submitted = st.form_submit_button("💰 운임 계산하기")
+        calc_btn = st.form_submit_button("운임 계산 실행")
 
-    if submitted:
-        if not zip_code:
-            st.warning("⚠️ 정확한 구역 판별을 위해 우편번호를 입력해 주세요.")
+    if calc_btn:
+        if not zip_input:
+            st.warning("⚠️ 우편번호를 입력해야 정확한 구역 판별이 가능합니다.")
         else:
-            # 1. Zone 판별
+            # 1. Zone 결정
             if country == "미국":
-                target_zone = get_us_zone(zip_code)
+                target_zone = get_us_zone(zip_input)
             elif country == "일본":
                 target_zone = "존 B"
             elif country == "독일":
@@ -108,33 +122,29 @@ else:
             else:
                 target_zone = "존 A"
 
-            # 2. 중량 올림 처리 (0.5 단위)
-            calc_weight = math.ceil(weight * 2) / 2
-            weight_str = str(calc_weight) if calc_weight % 1 != 0 else str(int(calc_weight))
+            # 2. 중량 올림 및 매칭
+            up_weight = math.ceil(weight_input * 2) / 2
+            w_str = str(up_weight) if up_weight % 1 != 0 else str(int(up_weight))
             
-            # 3. 요금 조회
-            # 서비스는 기본적으로 IP 특송화물을 기준으로 조회
-            res = df[df['중량(kg)'].str.contains(f"^{weight_str}$", na=False, regex=True)]
+            # 3. 데이터 조회 (정확한 행 매칭)
+            match_row = df[df['중량(kg)'].str.fullmatch(w_str, na=False)]
             
-            if not res.empty:
-                base_price = res.iloc[0][target_zone]
-                fuel_fee = int(base_price * (fuel_rate / 100))
-                total_price = base_price + fuel_fee
+            if not match_row.empty:
+                base_val = match_row.iloc[0][target_zone]
+                fuel_val = int(base_val * (fuel_rate / 100))
+                total_val = base_val + fuel_val
                 
                 st.balloons()
-                st.success(f"### {country} ({target_zone}) 수입 운임 결과")
+                st.success(f"### 계산 결과: {country} ({target_zone})")
                 
-                c1, c2, c3 = st.columns(3)
-                c1.metric("기본 운임", f"{base_price:,.0f}원")
-                c2.metric("유류 할증료", f"{fuel_fee:,.0f}원")
-                c3.metric("최종 예상 합계", f"{total_price:,.0f}원")
+                res1, res2, res3 = st.columns(3)
+                res1.metric("기본 운임", f"{base_val:,.0f}원")
+                res2.metric("유류 할증료", f"{fuel_val:,.0f}원")
+                res3.metric("총 예상 합계", f"{total_val:,.0f}원")
                 
-                # 추가 안내
                 st.divider()
-                st.warning("**⚠️ 추가 수수료 주의사항**\n\n"
-                           "* **원격지 수수료:** 건당 최소 **35,600원** (도서산간/외곽지역 발생 시)\n"
-                           "* 본 결과는 2026년 요금표 기반 추정치이며 실제 청구액과 다를 수 있습니다.")
+                st.info(f"💡 **참고사항**\n\n* 원격지(ODA) 해당 시 **35,600원**이 추가 발생할 수 있습니다.\n* 현재 유류할증료({fuel_rate}%)는 사이트 동기화 데이터입니다.")
             else:
-                st.error(f"중량 {calc_weight}kg에 대한 데이터를 찾을 수 없습니다. 요금표의 범위를 확인하세요.")
+                st.error(f"요금표에서 {up_weight}kg에 해당하는 데이터를 찾을 수 없습니다.")
 
-st.caption("© 2026 동명베아링 AI Task Force Team")
+st.caption("© 2026 Dongmyeong Bearing AI Task Force Team")
