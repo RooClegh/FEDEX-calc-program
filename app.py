@@ -10,13 +10,11 @@ from datetime import datetime
 # 1. 설정 및 파일 경로
 FILE_NAME = 'fedex_2026.csv' 
 
-# 💡 [자주 쓰는 주소 설정] 업체별 국가와 ZIP CODE를 등록했습니다.
+# 💡 [자주 쓰는 주소 설정] 동명베아링 실무에 맞게 TIMKEN과 IKO만 남겼습니다.
 FAVORITE_ADDRESSES = {
     "직접 입력": {"country": "미국", "zip": ""},
     "TIMKEN": {"country": "미국", "zip": "44720"},
-    "IKO": {"country": "일본", "zip": "1088586"},
-    "독일 FAG 지사": {"country": "독일", "zip": "97421"},
-    "중국 심천 창고": {"country": "중국(남부)", "zip": "518000"}
+    "IKO": {"country": "일본", "zip": "1088586"}
 }
 
 # 2. 실시간 유류할증료 추출 함수
@@ -87,7 +85,7 @@ if df is None:
 else:
     current_fuel = get_fedex_fuel_surcharge()
 
-    # 상단에서 업체 선택 시 아래 입력값이 자동으로 바뀝니다.
+    # 상단 업체 선택 리스트가 아주 간결해졌습니다.
     selected_addr = st.selectbox("📌 자주 쓰는 주소 선택", list(FAVORITE_ADDRESSES.keys()))
     addr_info = FAVORITE_ADDRESSES[selected_addr]
 
