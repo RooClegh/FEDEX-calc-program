@@ -7,7 +7,7 @@ from bs4 import BeautifulSoup
 import re
 from datetime import datetime
 
-# 1. 고정 설정
+# 1. 설정
 FILE_NAME = 'fedex_2026.csv' 
 
 COUNTRY_ZONE_MAP = {
@@ -51,7 +51,7 @@ def get_us_zone(zip_code):
 @st.cache_data
 def load_data():
     if not os.path.exists(FILE_NAME): return None
-    # 원본을 읽어올 때 copy()를 사용하여 캐시 오염 방지
+    # 로딩 시점에 아예 새로운 객체로 복사
     df = pd.read_csv(FILE_NAME, skiprows=3).copy()
     df.columns = df.columns.str.replace(r'\s+', ' ', regex=True).str.strip()
     zone_cols = [c for c in df.columns if '존' in c]
@@ -68,10 +68,9 @@ st.set_page_config(page_title="항공 운임 예측 계산기", layout="centered
 st.title("✈️ 항공 운임 예측 계산기")
 st.caption("🏢 도착지: 부산광역시 사상구 새벽로215번길 123 동명베아링")
 
-# 데이터 로드
-raw_df = load_data()
+df_master = load_data()
 
-if raw_df is None:
+if df_master is None:
     st.error(f"❌ '{FILE_NAME}' 파일을 찾을 수 없습니다.")
 else:
     if 'current_fuel_rate' not in st.session_state:
@@ -80,82 +79,73 @@ else:
     selected_addr = st.selectbox("📌 자주 쓰는 주소 선택", list(FAVORITE_ADDRESSES.keys()))
     addr_info = FAVORITE_ADDRESSES[selected_addr]
 
-    # 폼 시작
-    with st.form("calc_form"):
+    with st.form("main_calc_form"):
         col1, col2 = st.columns(2)
         with col1:
             country_list = sorted(list(COUNTRY_ZONE_MAP.keys()))
             try: def_idx = country_list.index(addr_info["country"])
             except: def_idx = 0
-            country_input = st.selectbox("🌐 출발 국가", country_list, index=def_idx)
-            zip_input = st.text_input("📍 출발지 ZIP CODE", value=addr_info["zip"])
+            country_in = st.selectbox("🌐 출발 국가", country_list, index=def_idx)
+            zip_in = st.text_input("📍 출발지 ZIP CODE", value=addr_info["zip"])
         with col2:
-            weight_input = st.number_input("📦 화물 중량 (kg)", min_value=0.5, step=0.5, value=5.0)
-            fuel_input = st.number_input("⛽ 적용 유류할증료 (%)", value=st.session_state.current_fuel_rate, step=0.01)
+            weight_in = st.number_input("📦 화물 중량 (kg)", min_value=0.5, step=0.5, value=5.0)
+            fuel_in = st.number_input("⛽ 적용 유류할증료 (%)", value=st.session_state.current_fuel_rate, step=0.01)
         
-        submitted = st.form_submit_button("운임 계산 실행")
+        btn = st.form_submit_button("운임 계산 실행")
 
-    if submitted:
-        # 지역 및 중량 확정
-        target_zone = COUNTRY_ZONE_MAP[country_input]
-        if zip_input and country_input == "미국":
-            target_zone = get_us_zone(zip_input)
+    if btn:
+        # 1. 기본 설정 확정
+        target_zone = COUNTRY_ZONE_MAP[country_in]
+        if zip_in and country_in == "미국":
+            target_zone = get_us_zone(zip_in)
         
-        up_weight = math.ceil(weight_input * 2) / 2
+        up_w = math.ceil(weight_in * 2) / 2
         
-        # 💡 중요: 원본 데이터를 직접 수정하지 않도록 값만 추출
-        base_unit_price = 0
-        is_range_calc = False
-        match_found = False
+        # 2. 계산용 변수 초기화 (데이터프레임과 연결 차단)
+        found_base_price = 0.0
+        calc_method = ""
+        is_success = False
 
-        # 1단계: 정확한 중량 매칭 탐색
-        for i in range(len(raw_df)):
-            w_val = str(raw_df.loc[i, '중량(kg)'])
-            if w_val == str(int(up_weight)) or w_val == str(up_weight):
-                # .item()을 사용하여 단순 숫자로 추출 (데이터프레임 연결 끊기)
-                base_unit_price = float(raw_df.loc[i, target_zone])
-                is_range_calc = False
-                match_found = True
-                break
+        # 💡 [필살기] 데이터프레임의 행을 '값'으로만 필터링하여 매칭
+        # (A) 고정 중량 행 먼저 찾기
+        fixed_match = df_master[df_master['중량(kg)'].isin([str(int(up_w)), str(up_w)])]
         
-        # 2단계: 실패 시 범위 매칭 탐색
-        if not match_found:
-            for i in range(len(raw_df)):
-                w_val = str(raw_df.loc[i, '중량(kg)'])
-                if '-' in w_val:
+        if not fixed_match.empty:
+            # 첫 번째 일치하는 행의 값을 숫자로 가져옴
+            found_base_price = float(fixed_match.iloc[0][target_zone])
+            calc_method = "고정 운임 적용"
+            is_success = True
+        else:
+            # (B) 고정 중량이 없으면 범위 구간 찾기
+            for i in range(len(df_master)):
+                w_str = str(df_master.loc[i, '중량(kg)'])
+                if '-' in w_str:
                     try:
-                        s, e = map(float, w_val.split('-'))
-                        if s <= up_weight <= e:
-                            base_unit_price = float(raw_df.loc[i, target_zone])
-                            is_range_calc = True
-                            match_found = True
+                        start, end = map(float, w_str.split('-'))
+                        if start <= up_w <= end:
+                            unit_p = float(df_master.loc[i, target_zone])
+                            found_base_price = unit_p * up_w
+                            calc_method = f"단가 적용 (kg당 {unit_p:,.0f}원)"
+                            is_success = True
                             break
                     except: continue
 
-        if match_found:
-            # 💡 계산 로직: 원본 표의 값(base_unit_price)은 절대 변경하지 않음
-            if is_range_calc:
-                final_base_total = base_unit_price * up_weight
-                method_text = f"단가 적용 (kg당 {base_unit_price:,.0f}원)"
-            else:
-                final_base_total = base_unit_price
-                method_text = "고정 운임 적용"
-            
-            # 최종 계산
-            fuel_cost = final_base_total * (fuel_input / 100)
-            grand_total = final_base_total + fuel_cost
+        # 3. 최종 결과 출력 (입력값 fuel_in 사용)
+        if is_success:
+            fuel_amt = found_base_price * (fuel_in / 100)
+            total_amt = found_base_price + fuel_amt
             
             st.balloons()
-            st.success(f"### 결과: {selected_addr}")
+            st.success(f"### 결과: {selected_addr} ({country_in})")
             
-            res_c1, res_c2 = st.columns(2)
-            res_c1.write(f"기본 운임: **{int(final_base_total):,.0f}원**")
-            res_c2.write(f"유류 할증료 ({fuel_input}%): **{int(fuel_cost):,.0f}원**")
-            st.markdown(f"## 총 합계: **{int(grand_total):,.0f}원**")
+            c1, c2 = st.columns(2)
+            c1.write(f"기본 운임: **{int(found_base_price):,.0f}원**")
+            c2.write(f"유류 할증료 ({fuel_in}%): **{int(fuel_amt):,.0f}원**")
+            st.markdown(f"## 총 합계: **{int(total_amt):,.0f}원**")
             st.divider()
-            st.caption(f"산출 기준: {target_zone} / {method_text}")
+            st.caption(f"산출 기준: {target_zone} / {calc_method}")
         else:
-            st.error("요금표에서 해당 중량을 찾을 수 없습니다.")
+            st.error("요금표에서 중량을 찾을 수 없습니다.")
 
 st.markdown("---")
 st.caption("© 2026 Dongmyeong Bearing AI Task Force Team | 제작: AI TFT 서주영 대리")
