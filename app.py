@@ -9,7 +9,7 @@ import re
 # 1. 파일 설정
 FILE_NAME = 'FEDEX_2026.csv'
 
-# 2. [업데이트] 국가별 지역(Region) 매핑 (엑셀 하단 데이터 기준)
+# 2. 국가별 지역(Region) 매핑 (엑셀 하단부 데이터 기반)
 COUNTRY_REGION_MAP = {
     "중국(남부)": "지역 A", "중국(기타)": "지역 C", "홍콩": "지역 A", "대만": "지역 A",
     "일본": "지역 B", "태국": "지역 C", "말레이시아": "지역 C", "인도네시아": "지역 C",
@@ -25,7 +25,7 @@ FAVORITE_ADDRESSES = {
     "IKO": {"country": "일본", "zip": "1088586"}
 }
 
-# 3. 유류할증료 추출 및 미국 존 판별
+# 기능 함수들
 def get_fedex_fuel_surcharge():
     url = "https://www.fedex.com/ko-kr/shipping/surcharges/fuel-surcharge.html"
     try:
@@ -47,31 +47,43 @@ def get_us_zone(zip_code):
     except: return "지역 F"
 
 @st.cache_data
-def load_and_clean_data():
-    if not os.path.exists(FILE_NAME): return None
-    # 새 엑셀 구조에 맞춰 4행(index 3)부터 읽기 시작
-    df = pd.read_csv(FILE_NAME, skiprows=3).copy()
-    df.columns = df.columns.str.strip()
+def load_fedex_data():
+    if not os.path.exists(FILE_NAME): return None, None
     
-    # 금액 컬럼 숫자 변환 (쉼표 제거)
-    region_cols = [c for c in df.columns if '지역' in c]
-    for col in region_cols:
-        df[col] = df[col].astype(str).str.replace(',', '').str.strip()
-        df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+    # 원본 로드 (전체)
+    raw_df = pd.read_csv(FILE_NAME, skiprows=3, header=None).copy()
     
-    # 중량 컬럼 정리
-    if '중량(Kg)' in df.columns:
-        df['중량(Kg)'] = df['중량(Kg)'].astype(str).str.replace(' ', '').str.strip()
-    return df
+    # 컬럼명 설정 (엑셀 4행 기준)
+    cols = ["중량(Kg)", "구분", "지역 A", "지역 D", "지역 E", "지역 F", "지역 G", "지역 H", "지역 I", "지역 J", "지역 K", "지역 M", "지역 N"]
+    
+    # 💡 IP 섹션 추출 (5행 ~ 38행 예상)
+    df_ip = raw_df.iloc[1:35, 0:13].copy()
+    df_ip.columns = cols
+    
+    # 💡 IE 섹션 추출 (40행 ~ 67행 확인됨)
+    # 엑셀 인덱스 기준으로는 skiprows=3이므로 36행부터 63행 정도가 됩니다.
+    df_ie = raw_df.iloc[36:64, 0:13].copy()
+    df_ie.columns = cols
+    
+    # 데이터 정제 함수
+    def clean_df(target_df):
+        for c in cols[2:]: # 지역 컬럼들
+            target_df[c] = target_df[c].astype(str).str.replace(',', '').str.strip()
+            target_df[c] = pd.to_numeric(target_df[c], errors='coerce').fillna(0)
+        target_df['중량(Kg)'] = target_df['중량(Kg)'].astype(str).str.replace(' ', '').str.strip()
+        return target_df
+
+    return clean_df(df_ip), clean_df(df_ie)
 
 # --- UI 레이아웃 ---
-st.set_page_config(page_title="2026 항공 운임 계산기", layout="centered")
-st.title("✈️ 2026 항공 운임 계산기 (IP Import)")
+st.set_page_config(page_title="FedEx 운임 비교기", layout="wide")
+
+st.title("✈️ FedEx 실데이터 운임 비교 (IP vs IE)")
 st.caption("🏢 도착지: 부산광역시 사상구 새벽로215번길 123 동명베아링")
 
-df_master = load_and_clean_data()
+df_ip, df_ie = load_fedex_data()
 
-if df_master is None:
+if df_ip is None:
     st.error(f"❌ '{FILE_NAME}' 파일을 찾을 수 없습니다.")
 else:
     if 'current_fuel_rate' not in st.session_state:
@@ -80,69 +92,67 @@ else:
     selected_addr = st.selectbox("📌 자주 쓰는 주소 선택", list(FAVORITE_ADDRESSES.keys()))
     addr_info = FAVORITE_ADDRESSES[selected_addr]
 
-    with st.form("calc_form"):
-        col1, col2 = st.columns(2)
-        with col1:
+    with st.form("compare_form"):
+        c1, c2, c3 = st.columns([2, 1, 1])
+        with c1:
             country_list = sorted(list(COUNTRY_REGION_MAP.keys()))
             c_idx = country_list.index(addr_info["country"]) if addr_info["country"] in country_list else 0
             country_in = st.selectbox("🌐 출발 국가", country_list, index=c_idx)
             zip_in = st.text_input("📍 출발지 ZIP CODE", value=addr_info["zip"])
-        with col2:
-            weight_in = st.number_input("📦 화물 중량 (kg)", min_value=0.1, step=0.5, value=1.0)
-            fuel_in = st.number_input("⛽ 유류할증료 (%)", value=st.session_state.current_fuel_rate, step=0.01, help="FedEx 실시간 요율")
+        with c2:
+            weight_in = st.number_input("📦 화물 중량 (kg)", min_value=0.5, step=0.5, value=1.0)
+        with c3:
+            fuel_in = st.number_input("⛽ 유류할증료 (%)", value=st.session_state.current_fuel_rate, step=0.01)
         
-        submitted = st.form_submit_button("운임 계산 실행")
+        submitted = st.form_submit_button("운임 비교 결과 보기", use_container_width=True)
 
     if submitted:
-        # 1. 지역 결정
         target_region = COUNTRY_REGION_MAP[country_in]
         if zip_in and country_in == "미국":
             target_region = get_us_zone(zip_in)
         
-        # 2. 중량 올림 처리 (0.5 단위)
         up_w = math.ceil(weight_in * 2) / 2
         
-        # 3. 가격 매칭 로직
-        base_price = 0
-        service_type = ""
-        
-        # 중량별 서비스 구분
-        if weight_in <= 0.5: # Envelope 우선 확인 가능성 고려
-            env_row = df_master[df_master['중량(Kg)'] == 'Envelope']
-            if not env_row.empty:
-                base_price = float(env_row.iloc[0][target_region])
-                service_type = "Envelope"
-        
-        if base_price == 0: # Pak 또는 IP 탐색
-            # 0.5kg ~ 2.5kg는 Pak 요금 우선 확인
-            if weight_in <= 2.5:
-                pak_match = df_master[(df_master['중량(Kg)'] == str(up_w)) & (df_master['구분'] == 'Pak')]
-                if not pak_match.empty:
-                    base_price = float(pak_match.iloc[0][target_region])
-                    service_type = "FedEx Pak"
+        # 1. IP 가격 찾기
+        ip_price = 0
+        ip_match = df_ip[df_ip['중량(Kg)'] == str(up_w)]
+        if not ip_match.empty:
+            ip_price = float(ip_match.iloc[0][target_region])
 
-            # 일반 IP 요금 탐색 (위에서 못 찾았을 경우)
-            if base_price == 0:
-                ip_match = df_master[df_master['중량(Kg)'] == str(up_w)]
-                if not ip_match.empty:
-                    base_price = float(ip_match.iloc[0][target_region])
-                    service_type = "International Priority (IP)"
+        # 2. IE 가격 찾기 (40~67행 데이터 사용)
+        ie_price = 0
+        ie_match = df_ie[df_ie['중량(Kg)'] == str(up_w)]
+        if not ie_match.empty:
+            ie_price = float(ie_match.iloc[0][target_region])
 
-        # 4. 결과 출력
-        if base_price > 0:
-            fuel_amt = base_price * (fuel_in / 100)
-            total = base_price + fuel_amt
-            
-            st.balloons()
-            st.success(f"### 결과: {country_in} ({target_region})")
-            c1, c2 = st.columns(2)
-            c1.write(f"기본 운임 ({service_type}): **{int(base_price):,.0f}원**")
-            c2.write(f"유류 할증료 ({fuel_in}%): **{int(fuel_amt):,.0f}원**")
-            st.markdown(f"## 총 합계: **{int(total):,.0f}원**")
-            st.divider()
-            st.caption(f"📅 [FedEx 공식 유류할증료 확인](https://www.fedex.com/ko-kr/shipping/surcharges/fuel-surcharge.html)")
-        else:
-            st.error("해당 중량의 요금 데이터를 찾을 수 없습니다.")
+        # --- 출력 ---
+        st.divider()
+        col_left, col_right = st.columns(2)
+
+        with col_left:
+            st.subheader("🚀 International Priority (IP)")
+            st.caption("배송 속도: 1~3 영업일 (긴급)")
+            if ip_price > 0:
+                ip_fuel = ip_price * (fuel_in / 100)
+                st.metric("총 합계", f"{int(ip_price + ip_fuel):,.0f} 원", f"기본: {int(ip_price):,.0f}")
+                st.write(f"유류할증료: {int(ip_fuel):,.0f}원")
+            else:
+                st.warning("IP 요금 데이터를 찾을 수 없습니다.")
+
+        with col_right:
+            st.subheader("🐢 International Economy (IE)")
+            st.caption("배송 속도: 4~6 영업일 (경제적)")
+            if ie_price > 0:
+                ie_fuel = ie_price * (fuel_in / 100)
+                st.metric("총 합계", f"{int(ie_price + ie_fuel):,.0f} 원", f"기본: {int(ie_price):,.0f}", delta_color="inverse")
+                st.write(f"유류할증료: {int(ie_fuel):,.0f}원")
+                
+                # 금액 절감액 표시
+                diff = (ip_price + ip_fuel) - (ie_price + ie_fuel)
+                if diff > 0:
+                    st.success(f"💡 IP 대비 **{int(diff):,.0f}원** 저렴합니다!")
+            else:
+                st.warning("IE 요금 데이터를 찾을 수 없습니다. (1kg 미만은 IE가 없을 수 있음)")
 
 st.markdown("---")
 st.caption("© 2026 Dongmyeong Bearing AI Task Force Team | 제작: AI TFT 서주영 대리")
