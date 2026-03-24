@@ -42,7 +42,6 @@ def load_and_split_data():
         return df
     return clean(df_ip), clean(df_ie)
 
-# --- UI 레이아웃 ---
 st.set_page_config(page_title="FEDEX 항공 운임 예측 계산기", layout="wide")
 st.title("✈️ FEDEX 항공 운임 예측 계산기")
 st.caption("정보를 입력하신 후 하단의 [운임 계산하기] 버튼을 눌러주세요.")
@@ -102,19 +101,18 @@ else:
                 else: st.info("ℹ️ 해당 구간 IE 미지원")
             else: st.warning(f"⚠️ {region} IE 데이터 없음")
 
-    # --- 하단 강조 섹션 수정 ---
+    # --- 하단 강조 섹션 (HTML 색상 강제 지정) ---
     st.divider()
     
-    # 2. 운임 주의사항: 연한 주황색 (FedEx Orange 느낌)
-    st.write(f":orange[**⚠️ 운임 주의사항**]")
-    st.write(":orange[본 계산기는 운임표 기반 예측치이며 실제 청구 금액은 화물의 크기(부피 중량), 통관 수수료 등에 따라 달라질 수 있습니다.]")
+    # 주황색 (#FF6600) 강제 적용
+    st.markdown('<div style="color: #FF6600 !important; font-weight: bold;">⚠️ 운임 주의사항</div>', unsafe_allow_html=True)
+    st.markdown('<div style="color: #FF6600 !important; font-size: 0.9rem; margin-bottom: 20px;">본 계산기는 운임표 기반 예측치이며 실제 청구 금액은 화물의 크기(부피 중량), 통관 수수료 등에 따라 달라질 수 있습니다.</div>', unsafe_allow_html=True)
     
-    st.write("") # 간격
-
-    # 1. 유류할증료 상세 확인: 보라색 작은 글씨
     st.write("📅 유류할증료 안내")
     st.write("유류할증료 정보는 주 단위로 변동되므로 정확한 확인이 필요합니다.")
-    st.write(f":violet[**🔗 [FedEx 유류할증료 상세 확인 (클릭)](https://www.fedex.com/ko-kr/shipping/surcharges.html)**]")
+    
+    # 보라색 (#660099) 링크 강제 적용
+    st.markdown('<a href="https://www.fedex.com/ko-kr/shipping/surcharges.html" target="_blank" style="color: #660099 !important; font-weight: bold; text-decoration: underline;">🔗 [FedEx 유류할증료 상세 확인 (클릭)]</a>', unsafe_allow_html=True)
 
     st.markdown("---")
     st.caption("© 2026 Dongmyeong Bearing AI Task Force Team | 제작: AI TFT 서주영 대리")
