@@ -7,7 +7,6 @@ import re
 # 1. 파일 설정
 FILE_NAME = 'FEDEX_2026.csv'
 
-# 국가별 지역 매핑 (엑셀의 분류 기준에 맞춰 지속적으로 업데이트 가능)
 COUNTRY_REGION_MAP = {
     "중국(남부)": "지역 A", "중국(기타)": "지역 C", "홍콩": "지역 A", "대만": "지역 A",
     "일본": "지역 B", "태국": "지역 C", "말레이시아": "지역 C", "베트남": "지역 C",
@@ -22,7 +21,6 @@ FAVORITE_ADDRESSES = {
 }
 
 def detect_country_by_zip(zip_code):
-    """우편번호를 분석하여 국가 자동 인식"""
     zip_clean = re.sub(r'[^0-9]', '', str(zip_code))
     if len(zip_clean) == 7: return "일본"
     elif len(zip_clean) == 5: return "미국"
@@ -30,21 +28,31 @@ def detect_country_by_zip(zip_code):
 
 @st.cache_data
 def load_and_split_data():
-    """데이터 로드 및 IP/IE 구역 분리"""
     if not os.path.exists(FILE_NAME):
         return None, None
     
-    # 전체 데이터를 읽어옵니다.
-    raw_df = pd.read_csv(FILE_NAME, skiprows=3, header=None).copy()
+    # 엑셀 전체 로드 (행 제한 없이)
+    raw_df = pd.read_csv(FILE_NAME, header=None).copy()
     cols = ["중량(Kg)", "구분", "지역 A", "지역 B", "지역 C", "지역 D", "지역 E", "지역 F", "지역 G", "지역 H", "지역 I", "지역 J", "지역 K", "지역 M", "지역 N"]
     
-    # 1. IP 구간: 상단 패키지 요금표
-    df_ip = raw_df.iloc[1:40, 0:len(cols)].copy()
+    # [수정] 키워드 기반 자동 구역 분리
+    ip_start_idx = 0
+    ie_start_idx = 0
     
-    # 2. IE 구간: 엑셀 하단의 고중량 구간까지 포함 (70행 이후 넉넉히 지정)
-    df_ie = raw_df.iloc[70:, 0:len(cols)].copy()
+    for i, row in raw_df.iterrows():
+        row_str = str(row.values)
+        if "International Priority" in row_str and ip_start_idx == 0:
+            ip_start_idx = i + 1
+        if "International Economy" in row_str:
+            ie_start_idx = i + 1
+            
+    # IP 데이터: IP 시작부터 IE 시작 전까지
+    df_ip = raw_df.iloc[ip_start_idx + 1:ie_start_idx - 2, 0:len(cols)].copy()
+    # IE 데이터: IE 시작부터 끝까지
+    df_ie = raw_df.iloc[ie_start_idx + 1:, 0:len(cols)].copy()
     
     def clean(df):
+        if df.empty: return df
         df.columns = cols 
         for c in cols[2:]:
             df[c] = df[c].astype(str).str.replace(',', '').str.strip()
@@ -54,15 +62,15 @@ def load_and_split_data():
     return clean(df_ip), clean(df_ie)
 
 def get_fedex_fare(df, weight, region):
-    """FedEx 공식: 0.5kg 단위 올림 후 단가 적용 로직"""
-    # FedEx 공식 중량 올림
-    target_w = math.ceil(weight * 2) / 2
+    if df.empty: return None, None, weight
     
+    target_w = math.ceil(weight * 2) / 2
     match = pd.DataFrame()
-    # 고정 무게 매칭 (0.5 ~ 20.5kg 구간)
+    
+    # 고정 무게 매칭
     match = df[df['중량(Kg)'].astype(str).str.strip() == f"{target_w}"]
     
-    # 범위형 무게 매칭 (21-44, 45-70 등)
+    # 범위형 무게 매칭
     if match.empty:
         for idx, row in df.iterrows():
             w_label = str(row['중량(Kg)'])
@@ -78,11 +86,13 @@ def get_fedex_fare(df, weight, region):
                     break
 
     if not match.empty:
+        # 해당 지역(F 등)에 요금이 0인 경우도 체크
         base_unit_price = float(match[region].iloc[0])
+        if base_unit_price == 0: return None, None, target_w
+        
         gubun = str(match['구분'].iloc[0])
         w_text = str(match['중량(Kg)'].iloc[0])
         
-        # 단가 곱하기 조건 (범위형이거나 'kg당' 표시가 있는 경우)
         if 'kg당' in gubun or '~' in w_text or '-' in w_text or '이상' in w_text:
             return base_unit_price * target_w, gubun, target_w
         else:
@@ -90,14 +100,14 @@ def get_fedex_fare(df, weight, region):
             
     return None, None, target_w
 
-# --- UI 레이아웃 시작 ---
+# --- UI 레이아웃 ---
 st.set_page_config(page_title="FEDEX 항공 운임 예측 계산기", layout="wide")
 st.title("✈️ FEDEX 항공 운임 예측 계산기")
 
 df_ip, df_ie = load_and_split_data()
 
 if df_ip is None:
-    st.error(f"'{FILE_NAME}' 파일을 찾을 수 없습니다. GitHub에 파일이 있는지 확인해 주세요.")
+    st.error(f"'{FILE_NAME}' 파일을 찾을 수 없습니다.")
 else:
     selected_addr = st.selectbox("📌 자주 쓰는 주소 선택", list(FAVORITE_ADDRESSES.keys()))
     addr_info = FAVORITE_ADDRESSES[selected_addr]
@@ -113,13 +123,12 @@ else:
             idx = country_list.index(auto_c) if auto_c in country_list else (country_list.index(addr_info["country"]) if addr_info["country"] in country_list else 0)
             country = st.selectbox("출발 국가", country_list, index=idx)
             fuel_rate = st.number_input("현재 유류할증료 (%)", value=41.75)
-        
         submitted = st.form_submit_button("운임 계산하기")
 
     if submitted:
+        # 엑셀 상의 지역 매핑 한 번 더 확인 (F=미국 등)
         region = COUNTRY_REGION_MAP[country]
         
-        # IP / IE 각각의 요금 계산
         fare_ip, gubun_ip, final_w_ip = get_fedex_fare(df_ip, weight, region)
         fare_ie, gubun_ie, final_w_ie = get_fedex_fare(df_ie, weight, region)
 
@@ -130,25 +139,18 @@ else:
             st.markdown("### 🚀 International Priority (IP)")
             if fare_ip:
                 total_ip = fare_ip * (1 + fuel_rate/100)
-                st.metric("최종 합계", f"{int(total_ip):,.0f} 원")
+                st.metric("IP 최종 합계", f"{int(total_ip):,.0f} 원")
                 st.caption(f"적용 무게: {final_w_ip}kg | 기본 운임: {int(fare_ip):,.0f}원")
-            else:
-                st.warning("IP 데이터를 찾을 수 없습니다.")
+            else: st.warning("IP 요금 정보 없음")
 
         with res_c2:
             st.markdown("### 🐢 International Economy (IE)")
             if fare_ie:
                 total_ie = fare_ie * (1 + fuel_rate/100)
                 diff = (total_ip - total_ie) if fare_ip else 0
-                st.metric("최종 합계", f"{int(total_ie):,.0f} 원", delta=f"-{int(diff):,.0f}원" if diff > 0 else None)
+                st.metric("IE 최종 합계", f"{int(total_ie):,.0f} 원", delta=f"-{int(diff):,.0f}원" if diff > 0 else None)
                 st.caption(f"적용 무게: {final_w_ie}kg | 기본 운임: {int(fare_ie):,.0f}원")
-            else:
-                st.warning("IE 데이터를 찾을 수 없습니다.")
+            else: st.info("IE 요금 정보가 없거나 해당 구간 미지원입니다.")
 
-    # --- 하단 안내 섹션 ---
     st.divider()
-    st.markdown('<p style="color:#FF6600; font-weight:bold; margin-bottom:0px;">⚠️ 운임 주의사항</p>', unsafe_allow_html=True)
-    st.markdown('<p style="color:#FF6600; font-size:0.9rem;">본 계산기는 예측치이며 실제 청구 금액은 부피 중량 등에 따라 달라질 수 있습니다.</p>', unsafe_allow_html=True)
-    st.write("📅 유류할증료 안내")
-    st.markdown('<a href="https://www.fedex.com/ko-kr/shipping/surcharges.html" target="_blank" style="color:#660099; font-weight:bold; text-decoration:none;">🔗 [FedEx 유류할증료 상세 확인 (클릭)]</a>', unsafe_allow_html=True)
     st.caption("© 2026 Dongmyeong Bearing AI Task Force Team | 제작: AI TFT 서주영 대리")
