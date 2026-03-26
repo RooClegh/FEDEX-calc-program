@@ -4,72 +4,84 @@ import os
 import math
 import re
 
+# 1. 페이지 설정 및 디자인 CSS 적용
+st.set_page_config(page_title="동명베아링 FEDEX 계산기", layout="wide")
+
+# 보라색(#4D148C)과 주황색(#FF6600)을 활용한 스타일 정의
+st.markdown("""
+    <style>
+    /* 메인 타이틀 색상 (보라색) */
+    .main-title { color: #4D148C; font-weight: bold; font-size: 2.2rem; margin-bottom: 5px; }
+    /* 서브 타이틀 색상 (주황색) */
+    .sub-title { color: #FF6600; font-weight: bold; font-size: 1.1rem; margin-bottom: 20px; }
+    /* 강조 텍스트 (보라색) */
+    .purple-text { color: #4D148C; font-weight: bold; }
+    /* 주의사항 텍스트 (주황색) */
+    .orange-text { color: #FF6600; font-weight: bold; }
+    /* 사이드바 배경 및 폰트 조절 */
+    [data-testid="stSidebar"] { background-color: #f0f2f6; }
+    /* 버튼 색상 커스텀 */
+    div.stButton > button:first-child {
+        background-color: #4D148C;
+        color: white;
+        border: none;
+    }
+    div.stButton > button:first-child:hover {
+        background-color: #FF6600;
+        color: white;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
 FILE_NAME = 'FEDEX_2026.csv'
 
 @st.cache_data
 def load_all_data():
-    if not os.path.exists(FILE_NAME):
-        return None, None, {}
-    
-    # 1. 원본 데이터 로드
+    if not os.path.exists(FILE_NAME): return None, None, {}
     raw_df = pd.read_csv(FILE_NAME, header=None).fillna("")
     
-    # 2. 국가별 지역 매핑 (파일 하단부에서 자동 추출)
+    # 국가별 지역 매핑 자동 추출
     region_map = {}
     for i, row in raw_df.iterrows():
         row_list = [str(val).strip() for val in row.values if str(val).strip()]
-        if not row_list: continue
-        
-        # 국가명 식별 (보통 행의 첫 번째가 국가명, 마지막 근처가 지역 알파벳)
-        country_candidate = row_list[0]
-        # 지역 코드로 보이는 알파벳(A~Z)이 있는지 확인
-        possible_regions = [v for v in row_list if v in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"]
-        if possible_regions and len(country_candidate) > 1:
-            # 가장 마지막에 나타나는 알파벳을 해당 국가의 지역 코드로 인식
-            region_map[country_candidate] = f"지역 {possible_regions[-1]}"
+        if len(row_list) < 2: continue
+        country_name = row_list[0]
+        possible_regions = [v for v in row_list if len(v) == 1 and v.isalpha() and v.isupper()]
+        if possible_regions and len(country_name) > 1:
+            region_map[country_name] = f"지역 {possible_regions[-1]}"
 
-    # 3. IP/IE 섹션 분리
-    ip_idx = -1
-    ie_idx = -1
+    # IP/IE 섹션 위치 파악
+    ip_idx, ie_idx = -1, -1
     for i, row in raw_df.iterrows():
         row_str = "".join([str(v) for v in row.values])
         if "Priority" in row_str and ip_idx == -1: ip_idx = i
         if "Economy" in row_str and ie_idx == -1: ie_idx = i
 
-    # 컬럼 정의 (무게, 구분, 지역 A~X)
-    cols = ["중량", "구분"] + [f"지역 {chr(65+i)}" for i in range(24) if chr(65+i) != 'L'] # L 제외 A-X
+    cols = ["중량", "구분", "지역 A", "지역 D", "지역 E", "지역 F", "지역 G", "지역 H", "지역 I", "지역 J", "지역 K", "지역 M", "지역 N", "지역 O", "지역 P", "지역 Q", "지역 R", "지역 S", "지역 T", "지역 U", "지역 V", "지역 W", "지역 X", "지역 Y"]
     
-    def get_clean_df(start, end):
+    def extract_section(start, end):
         df = raw_df.iloc[start:end, :].copy()
-        # 실제 숫자가 시작되는 행 찾기 및 컬럼 정리
         df = df[df[0].astype(str).str.contains(r'\d|Envelope|Pak', na=False)]
-        # 필요한 열만 슬라이싱 (보통 0~15열 내외)
         df = df.iloc[:, :len(cols)]
         df.columns = cols[:df.shape[1]]
-        
         for c in df.columns[2:]:
             df[c] = df[c].astype(str).str.replace(',', '').str.replace(' ', '').str.strip()
             df[c] = pd.to_numeric(df[c], errors='coerce').fillna(0)
         return df
 
-    df_ip = get_clean_df(ip_idx + 2, ie_idx - 2)
-    df_ie = get_clean_df(ie_idx + 2, len(raw_df))
-    
+    df_ip = extract_section(ip_idx + 2, ie_idx - 2)
+    df_ie = extract_section(ie_idx + 2, len(raw_df))
     return df_ip, df_ie, region_map
 
 def calculate_fare(df, weight, region_col):
     if df.empty or region_col not in df.columns: return None, None, weight
-    
     target_w = math.ceil(weight * 2) / 2
     match = pd.DataFrame()
-    
-    # 고정 중량 매칭
     target_str = f"{target_w:.1f}" if target_w % 1 != 0 else f"{int(target_w)}"
-    match = df[df['중량'].astype(str).str.contains(f"^{target_str}$", na=False)]
+    match = df[df['중량'].astype(str).str.strip() == target_str]
     
-    # 범위형 매칭
     if match.empty:
-        for idx, row in df.iterrows():
+        for _, row in df.iterrows():
             w_label = str(row['중량'])
             nums = re.findall(r'\d+', w_label)
             if len(nums) >= 2 and float(nums[0]) <= target_w <= float(nums[1]):
@@ -81,52 +93,64 @@ def calculate_fare(df, weight, region_col):
         base = float(match[region_col].iloc[0])
         gubun = str(match['구분'].iloc[0])
         w_txt = str(match['중량'].iloc[0])
-        
-        # 단가 곱하기 규칙
         if any(x in w_txt or x in gubun for x in ['~', '-', '이상', 'kg당']):
             return base * target_w, gubun, target_w
         return base, gubun, target_w
     return None, None, target_w
 
-# --- UI ---
-st.set_page_config(page_title="동명베아링 FEDEX 계산기", layout="wide")
-st.title("✈️ FEDEX 항공 운임 계산기 (최신판)")
-
+# --- 메인 화면 시작 ---
 df_ip, df_ie, region_map = load_all_data()
 
-if not df_ip is None:
-    # 엑셀에서 추출된 모든 국가 리스트
+st.markdown('<p class="main-title">✈️ FEDEX 항공 운임 예측 계산기</p>', unsafe_allow_html=True)
+st.markdown('<p class="sub-title">동명베아링 AI Task Force Team (TFT) 전용 프로그램</p>', unsafe_allow_html=True)
+
+if df_ip is None:
+    st.error("데이터 파일(FEDEX_2026.csv)을 읽어올 수 없습니다.")
+else:
     countries = sorted(list(region_map.keys()))
-    
     with st.sidebar:
-        st.header("⚙️ 설정")
-        country = st.selectbox("출발 국가", countries, index=countries.index("일본") if "일본" in countries else 0)
-        fuel_rate = st.number_input("유류할증료 (%)", value=41.75, step=0.01)
-        st.info(f"📍 {country} 적용 지역: {region_map[country]}")
+        st.markdown('<p class="purple-text" style="font-size:1.2rem;">⚙️ 입력 설정</p>', unsafe_allow_html=True)
+        default_idx = countries.index("일본") if "일본" in countries else 0
+        selected_country = st.selectbox("출발 국가", countries, index=default_idx)
+        fuel_rate = st.number_input("현재 유류할증료 (%)", value=41.75, step=0.01)
+        target_region = region_map[selected_country]
+        st.markdown(f"📍 확인된 지역: <span class='purple-text'>{target_region}</span>", unsafe_allow_html=True)
 
-    weight = st.number_input("화물 중량 (kg)", min_value=0.5, value=10.0, step=0.5)
-    
-    if st.button("운임 계산하기"):
-        reg_col = region_map[country]
-        ip_val, ip_gb, ip_w = calculate_fare(df_ip, weight, reg_col)
-        ie_val, ie_gb, ie_w = calculate_fare(df_ie, weight, reg_col)
+    col_in1, col_in2 = st.columns(2)
+    with col_in1:
+        weight_input = st.number_input("화물 실중량 입력 (kg)", min_value=0.5, value=10.0, step=0.1)
+    with col_in2:
+        st.info(f"선택 국가: {selected_country} / 적용 요금: {target_region}")
+
+    if st.button("🚀 운임 계산하기", use_container_width=True):
+        ip_val, ip_gb, ip_w = calculate_fare(df_ip, weight_input, target_region)
+        ie_val, ie_gb, ie_w = calculate_fare(df_ie, weight_input, target_region)
         
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("🚀 IP (Priority)")
+        st.divider()
+        res_col1, res_col2 = st.columns(2)
+        
+        with res_col1:
+            st.markdown('<p class="purple-text" style="font-size:1.3rem;">🚀 International Priority (IP)</p>', unsafe_allow_html=True)
             if ip_val:
-                total = ip_val * (1 + fuel_rate/100)
-                st.metric("합계", f"{int(total):,.0f} 원")
-                st.caption(f"기본: {int(ip_val):,.0f}원 ({ip_gb})")
-            else: st.warning("데이터 없음")
-            
-        with col2:
-            st.subheader("🐢 IE (Economy)")
-            if ie_val:
-                total = ie_val * (1 + fuel_rate/100)
-                st.metric("합계", f"{int(total):,.0f} 원")
-                st.caption(f"기본: {int(ie_val):,.0f}원 ({ie_gb})")
-            else: st.info("IE 미지원 구간")
+                total_ip = ip_val * (1 + fuel_rate/100)
+                st.metric("예상 합계", f"{int(total_ip):,.0f} 원")
+                st.caption(f"청구 중량: {ip_w}kg | 기본 운임: {int(ip_val):,.0f}원 ({ip_gb})")
+            else: st.warning("IP 데이터 없음")
 
+        with res_col2:
+            st.markdown('<p class="purple-text" style="font-size:1.3rem;">🐢 International Economy (IE)</p>', unsafe_allow_html=True)
+            if ie_val:
+                total_ie = ie_val * (1 + fuel_rate/100)
+                diff = (total_ip - total_ie) if ip_val else 0
+                st.metric("예상 합계", f"{int(total_ie):,.0f} 원", delta=f"-{int(diff):,.0f}원" if diff > 0 else None)
+                st.caption(f"청구 중량: {ie_w}kg | 기본 운임: {int(ie_val):,.0f}원 ({ie_gb})")
+            else: st.info("IE 미지원 또는 데이터 없음")
+
+# 푸터 및 주의사항 (주황색 적용)
 st.divider()
-st.caption("© 2026 Dongmyeong Bearing AI TFT | 제작: 서주영 대리")
+st.markdown('<p class="orange-text">⚠️ 운임 주의사항</p>', unsafe_allow_html=True)
+st.markdown('<p class="orange-text" style="font-size:0.9rem; font-weight:normal;">본 계산기는 입력하신 무게를 바탕으로 한 예측치이며, 실제 청구 금액은 화물의 부피 중량(CBM) 및 현지 사정에 따라 달라질 수 있습니다.</p>', unsafe_allow_html=True)
+
+st.write("📅 실시간 유류할증료 확인")
+st.markdown('<a href="https://www.fedex.com/ko-kr/shipping/surcharges.html" target="_blank" style="color:#4D148C; font-weight:bold; text-decoration:none;">🔗 [FedEx 공식 홈페이지 바로가기]</a>', unsafe_allow_html=True)
+st.caption("© 2026 Dongmyeong Bearing AI Task Force Team | 제작: 서주영 대리")
