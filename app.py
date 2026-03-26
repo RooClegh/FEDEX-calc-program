@@ -7,36 +7,54 @@ import re
 # 1. 페이지 설정 및 디자인 CSS 적용
 st.set_page_config(page_title="동명베아링 FEDEX 계산기", layout="wide")
 
-# 스타일 정의: 보라색(#4D148C), 주황색(#FF6600)
+# 스타일 정의: 배경색과 글자색 제어
 st.markdown("""
     <style>
-    .main-title { color: #4D148C; font-weight: bold; font-size: 2.2rem; margin-bottom: 5px; }
-    .sub-title { color: #FF6600; font-weight: bold; font-size: 1.1rem; margin-bottom: 25px; }
-    .purple-text { color: #4D148C; font-weight: bold; }
-    .orange-text { color: #FF6600; font-weight: bold; }
-    
-    /* 입력 구역 카드 스타일 */
-    .input-card {
-        background-color: #ffffff;
-        padding: 25px;
-        border-radius: 12px;
-        border: 1px solid #e0e0e0;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        margin-bottom: 20px;
+    /* 전체 배경을 FedEx 보라색 톤으로 설정하여 흰색 글자가 잘 보이게 함 */
+    .stApp {
+        background-color: #4D148C;
     }
     
-    /* 버튼 커스텀 */
+    /* 제목 스타일 (중간 사이즈, 흰색) */
+    .main-title { 
+        color: #ffffff; 
+        font-weight: bold; 
+        font-size: 1.6rem; 
+        margin-bottom: 10px; 
+    }
+    
+    /* 설정 문구 스타일 (흰색) */
+    .setting-text { 
+        color: #ffffff; 
+        font-weight: bold; 
+        font-size: 1.1rem; 
+        margin-bottom: 15px; 
+    }
+
+    /* 입력 구역 (박스 배경 제거 또는 투명하게 설정) */
+    .stSelectbox, .stNumberInput {
+        background-color: rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+    }
+
+    /* 버튼 커스텀 (주황색 포인트) */
     div.stButton > button:first-child {
-        background-color: #4D148C;
+        background-color: #FF6600;
         color: white;
         height: 3em;
         font-weight: bold;
         border: none;
         width: 100%;
+        margin-top: 10px;
     }
     div.stButton > button:first-child:hover {
-        background-color: #FF6600;
+        background-color: #e65c00;
         color: white;
+    }
+    
+    /* 메트릭 박스 글자색 조절 */
+    [data-testid="stMetricValue"] {
+        color: #4D148C;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -107,18 +125,18 @@ def calculate_fare(df, weight, region_col):
 # --- 메인 화면 로직 ---
 df_ip, df_ie, region_map = load_all_data()
 
+# 1. 제목 (흰색, 중간 사이즈)
 st.markdown('<p class="main-title">✈️ FEDEX 항공 운임 예측 계산기</p>', unsafe_allow_html=True)
-st.markdown('<p class="sub-title">동명베아링 AI Task Force Team (TFT) 전용 프로그램</p>', unsafe_allow_html=True)
 
 if df_ip is None:
-    st.error("데이터 파일(FEDEX_2026.csv)을 읽어올 수 없습니다.")
+    st.error("데이터 파일을 읽어올 수 없습니다.")
 else:
     countries = sorted(list(region_map.keys()))
     
-    # [입력 통합 카드 섹션]
-    st.markdown('<div class="input-card">', unsafe_allow_html=True)
-    st.markdown('<p class="purple-text" style="font-size:1.2rem; margin-bottom:15px;">📋 운임 계산 설정</p>', unsafe_allow_html=True)
+    # 2. 운임 계산 설정 (흰색)
+    st.markdown('<p class="setting-text">📋 운임 계산 설정</p>', unsafe_allow_html=True)
     
+    # 레이아웃을 잡아주는 컬럼 (흰색 박스 제거를 위해 container 없이 바로 구성)
     col1, col2, col3 = st.columns([1.5, 1, 1])
     
     with col1:
@@ -134,7 +152,6 @@ else:
         fuel_rate = st.number_input("유류할증료 (%)", value=41.75, step=0.01)
         
     calc_button = st.button("🚀 운임 계산하기")
-    st.markdown('</div>', unsafe_allow_html=True)
 
     # --- 계산 결과 출력 ---
     if calc_button:
@@ -142,30 +159,30 @@ else:
         ie_val, ie_gb, ie_w = calculate_fare(df_ie, weight_input, target_region)
         
         st.divider()
+        # 결과 창은 가독성을 위해 흰색 배경 카드를 유지합니다.
         res_col1, res_col2 = st.columns(2)
         
         with res_col1:
-            st.markdown('<p class="purple-text" style="font-size:1.3rem;">🚀 International Priority (IP)</p>', unsafe_allow_html=True)
-            if ip_val:
-                total_ip = ip_val * (1 + fuel_rate/100)
-                st.metric("예상 합계", f"{int(total_ip):,.0f} 원")
-                st.caption(f"청구 중량: {ip_w}kg | 기본 운임: {int(ip_val):,.0f}원 ({ip_gb})")
-            else: st.warning("IP 데이터 없음")
+            with st.container(border=True):
+                st.markdown('<p style="color:#4D148C; font-weight:bold; font-size:1.2rem;">🚀 International Priority (IP)</p>', unsafe_allow_html=True)
+                if ip_val:
+                    total_ip = ip_val * (1 + fuel_rate/100)
+                    st.metric("예상 합계", f"{int(total_ip):,.0f} 원")
+                    st.caption(f"청구 중량: {ip_w}kg | 기본 운임: {int(ip_val):,.0f}원")
+                else: st.warning("IP 데이터 없음")
 
         with res_col2:
-            st.markdown('<p class="purple-text" style="font-size:1.3rem;">🐢 International Economy (IE)</p>', unsafe_allow_html=True)
-            if ie_val:
-                total_ie = ie_val * (1 + fuel_rate/100)
-                diff = (total_ip - total_ie) if ip_val else 0
-                st.metric("예상 합계", f"{int(total_ie):,.0f} 원", delta=f"-{int(diff):,.0f}원" if diff > 0 else None)
-                st.caption(f"청구 중량: {ie_w}kg | 기본 운임: {int(ie_val):,.0f}원 ({ie_gb})")
-            else: st.info("IE 미지원 또는 데이터 없음")
+            with st.container(border=True):
+                st.markdown('<p style="color:#4D148C; font-weight:bold; font-size:1.2rem;">🐢 International Economy (IE)</p>', unsafe_allow_html=True)
+                if ie_val:
+                    total_ie = ie_val * (1 + fuel_rate/100)
+                    diff = (total_ip - total_ie) if ip_val else 0
+                    st.metric("예상 합계", f"{int(total_ie):,.0f} 원", delta=f"-{int(diff):,.0f}원" if diff > 0 else None)
+                    st.caption(f"청구 중량: {ie_w}kg | 기본 운임: {int(ie_val):,.0f}원")
+                else: st.info("IE 미지원 구간")
 
-# 푸터 및 주의사항
+# 푸터 (주황색 유지)
 st.divider()
-st.markdown('<p class="orange-text">⚠️ 운임 주의사항</p>', unsafe_allow_html=True)
-st.markdown('<p class="orange-text" style="font-size:0.95rem; font-weight:normal;">본 계산기는 입력하신 무게를 바탕으로 한 예측치이며, 실제 청구 금액은 화물의 부피 중량(CBM) 및 현지 사정에 따라 달라질 수 있습니다.</p>', unsafe_allow_html=True)
-
-st.write("📅 실시간 유류할증료 확인")
-st.markdown('<a href="https://www.fedex.com/ko-kr/shipping/surcharges.html" target="_blank" style="color:#4D148C; font-weight:bold; text-decoration:none;">🔗 [FedEx 공식 홈페이지 바로가기]</a>', unsafe_allow_html=True)
-st.caption("© 2026 Dongmyeong Bearing AI Task Force Team | 제작: 서주영 대리")
+st.markdown('<p style="color:#FF6600; font-weight:bold;">⚠️ 운임 주의사항</p>', unsafe_allow_html=True)
+st.markdown('<p style="color:#ffffff; font-size:0.85rem; opacity:0.8;">본 계산기는 입력하신 무게를 바탕으로 한 예측치이며, 실제 청구 금액은 부피 중량 및 현지 사정에 따라 달라질 수 있습니다.</p>', unsafe_allow_html=True)
+st.caption("© 2026 Dongmyeong Bearing | 제작: 서주영 대리")
