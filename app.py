@@ -4,57 +4,46 @@ import os
 import math
 import re
 
-# 1. 페이지 설정 및 디자인 CSS 적용
+# 1. 페이지 설정
 st.set_page_config(page_title="동명베아링 FEDEX 계산기", layout="wide")
 
-# 스타일 정의: 배경색과 글자색 제어
+# CSS: 스타일 정의 (배경은 시스템 설정, 텍스트와 레이아웃 위주)
 st.markdown("""
     <style>
-    /* 전체 배경을 FedEx 보라색 톤으로 설정하여 흰색 글자가 잘 보이게 함 */
-    .stApp {
-        background-color: #4D148C;
+    /* 제목 스타일: 크기를 키우고 보라색 강조 */
+    .main-title { 
+        color: #4D148C; 
+        font-weight: bold; 
+        font-size: 2.5rem; 
+        margin-bottom: 5px; 
     }
     
-    /* 제목 스타일 (중간 사이즈, 흰색) */
-    .main-title { 
-        color: #ffffff; 
+    /* 도착지 정보 스타일 */
+    .dest-info {
+        background-color: rgba(77, 20, 140, 0.05);
+        padding: 15px;
+        border-radius: 10px;
+        border-left: 5px solid #4D148C;
+        margin-bottom: 25px;
+    }
+    
+    /* 설정 문구 */
+    .setting-text { 
+        color: #31333F; 
         font-weight: bold; 
-        font-size: 1.6rem; 
+        font-size: 1.2rem; 
+        margin-top: 20px;
         margin-bottom: 10px; 
     }
-    
-    /* 설정 문구 스타일 (흰색) */
-    .setting-text { 
-        color: #ffffff; 
-        font-weight: bold; 
-        font-size: 1.1rem; 
-        margin-bottom: 15px; 
-    }
 
-    /* 입력 구역 (박스 배경 제거 또는 투명하게 설정) */
-    .stSelectbox, .stNumberInput {
-        background-color: rgba(255, 255, 255, 0.1);
-        border-radius: 8px;
-    }
-
-    /* 버튼 커스텀 (주황색 포인트) */
+    /* 버튼 스타일 (주황색) */
     div.stButton > button:first-child {
         background-color: #FF6600;
         color: white;
-        height: 3em;
+        height: 3.5em;
         font-weight: bold;
         border: none;
         width: 100%;
-        margin-top: 10px;
-    }
-    div.stButton > button:first-child:hover {
-        background-color: #e65c00;
-        color: white;
-    }
-    
-    /* 메트릭 박스 글자색 조절 */
-    [data-testid="stMetricValue"] {
-        color: #4D148C;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -122,44 +111,63 @@ def calculate_fare(df, weight, region_col):
         return base, gubun, target_w
     return None, None, target_w
 
-# --- 메인 화면 로직 ---
+# --- 화면 로직 ---
 df_ip, df_ie, region_map = load_all_data()
 
-# 1. 제목 (흰색, 중간 사이즈)
+# 1. 제목 (사이즈 확대)
 st.markdown('<p class="main-title">✈️ FEDEX 항공 운임 예측 계산기</p>', unsafe_allow_html=True)
 
+# 2. 도착지 고정 정보 (동명베아링)
+st.markdown(f"""
+    <div class="dest-info">
+        <strong style="color:#4D148C;">📍 수신처(도착지) 고정:</strong><br>
+        <strong>동명베아링</strong> | 부산광역시 사상구 새벽로215번길 123
+    </div>
+    """, unsafe_allow_html=True)
+
 if df_ip is None:
-    st.error("데이터 파일을 읽어올 수 없습니다.")
+    st.error("데이터 파일을 찾을 수 없습니다.")
 else:
-    countries = sorted(list(region_map.keys()))
+    # 3. 즐겨찾기 및 국가 선택
+    fav_options = {
+        "직접 입력 (국가 선택)": {"country": "일본", "addr": ""},
+        "TIMKEN (미국)": {"country": "미국", "addr": "4500 MOUNT PLEASANT ST NW NORTH CANTON, Ohio, UNITED STATES, 44720"},
+        "IKO (일본)": {"country": "일본", "addr": "2-19-19 TAKANAWA MINARO-GU TOKYO JAPAN 108-8586"}
+    }
     
-    # 2. 운임 계산 설정 (흰색)
-    st.markdown('<p class="setting-text">📋 운임 계산 설정</p>', unsafe_allow_html=True)
+    st.markdown('<p class="setting-text">📋 발송 정보 입력</p>', unsafe_allow_html=True)
     
-    # 레이아웃을 잡아주는 컬럼 (흰색 박스 제거를 위해 container 없이 바로 구성)
-    col1, col2, col3 = st.columns([1.5, 1, 1])
+    # 상단 카드 형태 레이아웃
+    col_fav, col_weight, col_fuel = st.columns([1.5, 1, 1])
     
-    with col1:
-        default_idx = countries.index("일본") if "일본" in countries else 0
-        selected_country = st.selectbox("출발 국가 선택", countries, index=default_idx)
-        target_region = region_map[selected_country]
-        st.write(f"📍 적용 지역: **{target_region}**")
+    with col_fav:
+        selected_fav = st.selectbox("즐겨찾기 주소 선택", list(fav_options.keys()))
+        fav_data = fav_options[selected_fav]
         
-    with col2:
+        # 즐겨찾기 선택 시 국가 자동 매칭
+        countries = sorted(list(region_map.keys()))
+        default_idx = countries.index(fav_data["country"]) if fav_data["country"] in countries else 0
+        selected_country = st.selectbox("출발 국가", countries, index=default_idx)
+        
+        if fav_data["addr"]:
+            st.caption(f"🏠 발송지: {fav_data['addr']}")
+            
+    with col_weight:
         weight_input = st.number_input("화물 실중량 (kg)", min_value=0.5, value=10.0, step=0.1)
+        target_region = region_map.get(selected_country, "지역 A")
+        st.write(f"🗺️ 적용 지역: **{target_region}**")
         
-    with col3:
+    with col_fuel:
         fuel_rate = st.number_input("유류할증료 (%)", value=41.75, step=0.01)
         
     calc_button = st.button("🚀 운임 계산하기")
 
-    # --- 계산 결과 출력 ---
+    # --- 계산 결과 ---
     if calc_button:
         ip_val, ip_gb, ip_w = calculate_fare(df_ip, weight_input, target_region)
         ie_val, ie_gb, ie_w = calculate_fare(df_ie, weight_input, target_region)
         
         st.divider()
-        # 결과 창은 가독성을 위해 흰색 배경 카드를 유지합니다.
         res_col1, res_col2 = st.columns(2)
         
         with res_col1:
@@ -169,7 +177,7 @@ else:
                     total_ip = ip_val * (1 + fuel_rate/100)
                     st.metric("예상 합계", f"{int(total_ip):,.0f} 원")
                     st.caption(f"청구 중량: {ip_w}kg | 기본 운임: {int(ip_val):,.0f}원")
-                else: st.warning("IP 데이터 없음")
+                else: st.warning("데이터 없음")
 
         with res_col2:
             with st.container(border=True):
@@ -181,8 +189,5 @@ else:
                     st.caption(f"청구 중량: {ie_w}kg | 기본 운임: {int(ie_val):,.0f}원")
                 else: st.info("IE 미지원 구간")
 
-# 푸터 (주황색 유지)
 st.divider()
-st.markdown('<p style="color:#FF6600; font-weight:bold;">⚠️ 운임 주의사항</p>', unsafe_allow_html=True)
-st.markdown('<p style="color:#ffffff; font-size:0.85rem; opacity:0.8;">본 계산기는 입력하신 무게를 바탕으로 한 예측치이며, 실제 청구 금액은 부피 중량 및 현지 사정에 따라 달라질 수 있습니다.</p>', unsafe_allow_html=True)
 st.caption("© 2026 Dongmyeong Bearing | 제작: 서주영 대리")
