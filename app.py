@@ -7,24 +7,32 @@ import re
 # 1. 페이지 설정 및 디자인 CSS 적용
 st.set_page_config(page_title="동명베아링 FEDEX 계산기", layout="wide")
 
-# 보라색(#4D148C)과 주황색(#FF6600)을 활용한 스타일 정의
+# 스타일 정의: 보라색(#4D148C), 주황색(#FF6600)
 st.markdown("""
     <style>
-    /* 메인 타이틀 색상 (보라색) */
     .main-title { color: #4D148C; font-weight: bold; font-size: 2.2rem; margin-bottom: 5px; }
-    /* 서브 타이틀 색상 (주황색) */
-    .sub-title { color: #FF6600; font-weight: bold; font-size: 1.1rem; margin-bottom: 20px; }
-    /* 강조 텍스트 (보라색) */
+    .sub-title { color: #FF6600; font-weight: bold; font-size: 1.1rem; margin-bottom: 25px; }
     .purple-text { color: #4D148C; font-weight: bold; }
-    /* 주의사항 텍스트 (주황색) */
     .orange-text { color: #FF6600; font-weight: bold; }
-    /* 사이드바 배경 및 폰트 조절 */
-    [data-testid="stSidebar"] { background-color: #f0f2f6; }
-    /* 버튼 색상 커스텀 */
+    
+    /* 입력 구역 카드 스타일 */
+    .input-card {
+        background-color: #ffffff;
+        padding: 25px;
+        border-radius: 12px;
+        border: 1px solid #e0e0e0;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        margin-bottom: 20px;
+    }
+    
+    /* 버튼 커스텀 */
     div.stButton > button:first-child {
         background-color: #4D148C;
         color: white;
+        height: 3em;
+        font-weight: bold;
         border: none;
+        width: 100%;
     }
     div.stButton > button:first-child:hover {
         background-color: #FF6600;
@@ -40,7 +48,6 @@ def load_all_data():
     if not os.path.exists(FILE_NAME): return None, None, {}
     raw_df = pd.read_csv(FILE_NAME, header=None).fillna("")
     
-    # 국가별 지역 매핑 자동 추출
     region_map = {}
     for i, row in raw_df.iterrows():
         row_list = [str(val).strip() for val in row.values if str(val).strip()]
@@ -50,7 +57,6 @@ def load_all_data():
         if possible_regions and len(country_name) > 1:
             region_map[country_name] = f"지역 {possible_regions[-1]}"
 
-    # IP/IE 섹션 위치 파악
     ip_idx, ie_idx = -1, -1
     for i, row in raw_df.iterrows():
         row_str = "".join([str(v) for v in row.values])
@@ -98,7 +104,7 @@ def calculate_fare(df, weight, region_col):
         return base, gubun, target_w
     return None, None, target_w
 
-# --- 메인 화면 시작 ---
+# --- 메인 화면 로직 ---
 df_ip, df_ie, region_map = load_all_data()
 
 st.markdown('<p class="main-title">✈️ FEDEX 항공 운임 예측 계산기</p>', unsafe_allow_html=True)
@@ -108,21 +114,30 @@ if df_ip is None:
     st.error("데이터 파일(FEDEX_2026.csv)을 읽어올 수 없습니다.")
 else:
     countries = sorted(list(region_map.keys()))
-    with st.sidebar:
-        st.markdown('<p class="purple-text" style="font-size:1.2rem;">⚙️ 입력 설정</p>', unsafe_allow_html=True)
+    
+    # [입력 통합 카드 섹션]
+    st.markdown('<div class="input-card">', unsafe_allow_html=True)
+    st.markdown('<p class="purple-text" style="font-size:1.2rem; margin-bottom:15px;">📋 운임 계산 설정</p>', unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1.5, 1, 1])
+    
+    with col1:
         default_idx = countries.index("일본") if "일본" in countries else 0
-        selected_country = st.selectbox("출발 국가", countries, index=default_idx)
-        fuel_rate = st.number_input("현재 유류할증료 (%)", value=41.75, step=0.01)
+        selected_country = st.selectbox("출발 국가 선택", countries, index=default_idx)
         target_region = region_map[selected_country]
-        st.markdown(f"📍 확인된 지역: <span class='purple-text'>{target_region}</span>", unsafe_allow_html=True)
+        st.write(f"📍 적용 지역: **{target_region}**")
+        
+    with col2:
+        weight_input = st.number_input("화물 실중량 (kg)", min_value=0.5, value=10.0, step=0.1)
+        
+    with col3:
+        fuel_rate = st.number_input("유류할증료 (%)", value=41.75, step=0.01)
+        
+    calc_button = st.button("🚀 운임 계산하기")
+    st.markdown('</div>', unsafe_allow_html=True)
 
-    col_in1, col_in2 = st.columns(2)
-    with col_in1:
-        weight_input = st.number_input("화물 실중량 입력 (kg)", min_value=0.5, value=10.0, step=0.1)
-    with col_in2:
-        st.info(f"선택 국가: {selected_country} / 적용 요금: {target_region}")
-
-    if st.button("🚀 운임 계산하기", use_container_width=True):
+    # --- 계산 결과 출력 ---
+    if calc_button:
         ip_val, ip_gb, ip_w = calculate_fare(df_ip, weight_input, target_region)
         ie_val, ie_gb, ie_w = calculate_fare(df_ie, weight_input, target_region)
         
@@ -146,10 +161,10 @@ else:
                 st.caption(f"청구 중량: {ie_w}kg | 기본 운임: {int(ie_val):,.0f}원 ({ie_gb})")
             else: st.info("IE 미지원 또는 데이터 없음")
 
-# 푸터 및 주의사항 (주황색 적용)
+# 푸터 및 주의사항
 st.divider()
 st.markdown('<p class="orange-text">⚠️ 운임 주의사항</p>', unsafe_allow_html=True)
-st.markdown('<p class="orange-text" style="font-size:0.9rem; font-weight:normal;">본 계산기는 입력하신 무게를 바탕으로 한 예측치이며, 실제 청구 금액은 화물의 부피 중량(CBM) 및 현지 사정에 따라 달라질 수 있습니다.</p>', unsafe_allow_html=True)
+st.markdown('<p class="orange-text" style="font-size:0.95rem; font-weight:normal;">본 계산기는 입력하신 무게를 바탕으로 한 예측치이며, 실제 청구 금액은 화물의 부피 중량(CBM) 및 현지 사정에 따라 달라질 수 있습니다.</p>', unsafe_allow_html=True)
 
 st.write("📅 실시간 유류할증료 확인")
 st.markdown('<a href="https://www.fedex.com/ko-kr/shipping/surcharges.html" target="_blank" style="color:#4D148C; font-weight:bold; text-decoration:none;">🔗 [FedEx 공식 홈페이지 바로가기]</a>', unsafe_allow_html=True)
