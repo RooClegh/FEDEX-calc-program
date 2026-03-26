@@ -14,27 +14,26 @@ st.markdown("""
     .main-title { 
         color: #ffffff; 
         font-weight: bold; 
-        font-size: 3rem; 
-        text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
-        margin-bottom: 5px;
+        font-size: 3.2rem; 
+        margin-bottom: 20px;
     }
     
-    /* 도착지 정보 섹션 */
+    /* 도착지 정보 섹션: 보라색 배경 제거, 글자 크기 축소, 주황색 왼쪽 라인 유지 */
     .dest-info {
-        background-color: #4D148C;
-        color: white;
-        padding: 20px;
-        border-radius: 12px;
-        margin-bottom: 25px;
-        border-left: 8px solid #FF6600;
+        background-color: transparent;
+        color: #31333F;
+        padding: 10px 15px;
+        border-left: 4px solid #FF6600;
+        margin-bottom: 30px;
+        font-size: 0.9rem;
+        line-height: 1.4;
     }
     
     /* 설정 헤더 (흰색) */
     .setting-header {
         color: #ffffff;
         font-weight: bold;
-        font-size: 1.3rem;
-        margin-top: 10px;
+        font-size: 1.2rem;
         margin-bottom: 15px;
     }
 
@@ -51,11 +50,6 @@ st.markdown("""
     div.stButton > button:first-child:hover {
         background-color: #e65c00;
         border: none;
-    }
-
-    /* 다크모드/라이트모드 대응을 위한 텍스트 가독성 설정 */
-    .stWrite, .stCaption {
-        font-weight: 500;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -129,12 +123,10 @@ df_ip, df_ie, region_map = load_all_data()
 # 1. 제목 (크기 확대 & 흰색)
 st.markdown('<p class="main-title">✈️ FEDEX 항공 운임 예측 계산기</p>', unsafe_allow_html=True)
 
-# 2. 도착지 고정 정보 (동명베아링)
+# 2. 도착지 고정 정보 (미니멀 디자인)
 st.markdown(f"""
     <div class="dest-info">
-        <span style="font-size:1.1rem; opacity:0.9;">📦 수신처(도착지) 고정</span><br>
-        <span style="font-size:1.5rem; font-weight:bold;">동명베아링</span><br>
-        <span style="font-size:1rem;">부산광역시 사상구 새벽로215번길 123 (전화: 051-XXX-XXXX)</span>
+        <span style="font-weight:bold;">도착지 고정:</span> 동명베아링 | 부산광역시 사상구 새벽로215번길 123
     </div>
     """, unsafe_allow_html=True)
 
@@ -149,9 +141,8 @@ else:
     }
     
     # 4. 입력 섹션
-    st.markdown('<p class="setting-header">📋 발송 정보 설정 (입력 시 자동 계산 준비)</p>', unsafe_allow_html=True)
+    st.markdown('<p class="setting-header">📋 발송 정보 설정</p>', unsafe_allow_html=True)
     
-    # 한 카드 형태의 레이아웃 구성
     c1, c2, c3 = st.columns([1.5, 1, 1])
     
     with c1:
@@ -171,7 +162,7 @@ else:
     with c3:
         fuel_rate = st.number_input("유류할증료 (%)", value=41.75, step=0.01)
         if fav_data["addr"]:
-            st.caption(f"🏠 발송지 주소: {fav_data['addr']}")
+            st.caption(f"🏠 발송지: {fav_data['addr']}")
 
     # 운임 계산 버튼
     if st.button("🚀 예측 운임 계산하기"):
@@ -200,8 +191,6 @@ else:
                     st.caption(f"청구 중량: {ie_w}kg | 기본 운임: {int(ie_val):,.0f}원")
                 else: st.info("IE 미지원 구간")
 
-# 5. 푸터 및 주의사항
+# 5. 푸터
 st.divider()
-st.markdown('<p style="color:#FF6600; font-weight:bold;">⚠️ 필독 주의사항</p>', unsafe_allow_html=True)
-st.markdown('<p style="font-size:0.9rem; opacity:0.8;">본 시스템은 동명베아링 내부 참조용입니다. 실제 FedEx 인보이스 금액은 부피 중량(CBM) 적용 여부 및 현지 부대 비용에 따라 차이가 발생할 수 있습니다.</p>', unsafe_allow_html=True)
 st.caption("© 2026 Dongmyeong Bearing | 제작: 서주영 대리")
