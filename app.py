@@ -7,43 +7,49 @@ import re
 # 1. 페이지 설정
 st.set_page_config(page_title="동명베아링 FEDEX 계산기", layout="wide")
 
-# CSS: 디자인 커스텀 (모든 글자 흰색 고정 및 레이아웃 조정)
+# CSS: 디자인 커스텀 (제목 크기 대폭 확대 및 흰색 고정)
 st.markdown("""
     <style>
+    /* 제목: 크기를 4rem으로 키우고 흰색 고정 */
     .main-title { 
         color: #ffffff !important; 
         font-weight: bold; 
-        font-size: 3rem; 
-        margin-bottom: 5px;
+        font-size: 4rem; 
+        margin-bottom: 0px;
+        padding-bottom: 0px;
     }
+    
+    /* 도착지 정보: 흰색, 슬림 디자인 */
     .dest-info {
         background-color: transparent;
         color: #ffffff !important;
-        padding: 5px 15px;
-        border-left: 4px solid #FF6600;
-        margin-bottom: 25px;
-        font-size: 1rem;
+        padding: 0px 15px;
+        border-left: 5px solid #FF6600;
+        margin-bottom: 35px;
+        font-size: 1.1rem;
     }
-    .setting-header, label, .stWrite, .stCaption {
+    
+    /* 모든 라벨 및 텍스트 흰색 강제 */
+    label, .stWrite, .stCaption, .setting-header, p {
         color: #ffffff !important;
         font-weight: bold !important;
     }
-    /* 버튼 스타일: 높이를 입력창과 맞춤 */
+
+    /* 버튼 스타일: 입력창과 높이 통일 및 주황색 강조 */
     div.stButton > button:first-child {
-        background-color: #FF6600;
-        color: white;
-        height: 3.1em;
+        background-color: #FF6600 !important;
+        color: white !important;
+        height: 3.1rem;
         font-weight: bold;
         border: none;
         width: 100%;
-        margin-top: 28px; /* 라벨 높이만큼 보정 */
+        margin-top: 28px; /* 라벨 높이 정렬용 */
+        font-size: 1.1rem;
     }
-    div.stButton > button:first-child:hover {
-        background-color: #e65c00;
-    }
-    /* 입력창 라벨 색상 */
-    .stSelectbox label, .stNumberInput label {
-        color: white !important;
+    
+    /* 결과 메트릭 글자색 조정 */
+    [data-testid="stMetricValue"] {
+        color: #4D148C !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -69,7 +75,7 @@ def load_all_data():
         if "Priority" in row_str and ip_idx == -1: ip_idx = i
         if "Economy" in row_str and ie_idx == -1: ie_idx = i
 
-    cols = ["중량", "구분", "지역 A", "지역 D", "지역 E", "지역 F", "지역 G", "지역 H", "지역 I", "지역 J", "지역 K", "지역 M", "지역 N", "지역 O", "지역 P", "지역 Q", "지역 R", "지역 S", "지역 T", "지역 U", "지역 V", "지역 W", "지역 X", "지역 Y"]
+    cols = ["중량", "구분"] + [f"지역 {c}" for c in "ADEFGHIJKMNOPQRSTUVWXY"]
     
     def extract_section(start, end):
         df = raw_df.iloc[start:end, :].copy()
@@ -110,78 +116,80 @@ def calculate_fare(df, weight, region_col):
         return base, gubun, target_w
     return None, None, target_w
 
-# --- 화면 구성 ---
+# --- 메인 화면 로직 ---
 df_ip, df_ie, region_map = load_all_data()
 
-st.markdown('<p class="main-title">✈️ FEDEX 항공 운임 예측 계산기</p>', unsafe_allow_html=True)
+# 제목 (크기 대폭 확대)
+st.markdown('<h1 class="main-title">✈️ FEDEX 항공 운임 예측 계산기</h1>', unsafe_allow_html=True)
+# 도착지 정보 (슬림 표기)
 st.markdown('<div class="dest-info">도착지: 동명베아링 ｜ 부산광역시 사상구 새벽로215번길 123</div>', unsafe_allow_html=True)
 
 if df_ip is None:
     st.error("데이터 파일을 찾을 수 없습니다. (FEDEX_2026.csv)")
 else:
-    # 1. 즐겨찾기 단독 행
+    # 1. 즐겨찾기 주소 선택 (단독 행)
     fav_options = {
         "직접 입력 (국가 선택)": {"country": "일본", "addr": ""},
         "TIMKEN (미국)": {"country": "미국", "addr": "4500 MOUNT PLEASANT ST NW NORTH CANTON, Ohio, UNITED STATES, 44720"},
         "IKO (일본)": {"country": "일본", "addr": "2-19-19 TAKANAWA MINARO-GU TOKYO JAPAN 108-8586"}
     }
-    
     selected_fav = st.selectbox("⭐ 즐겨찾기 주소 선택", list(fav_options.keys()))
     fav_data = fav_options[selected_fav]
 
-    # 2. 국가 및 화물 정보 (가로 배열)
-    col_country, col_weight = st.columns([1, 1])
-    
-    with col_country:
+    st.divider()
+
+    # 2. 출발 국가 / 화물 중량 (수평 배치)
+    row1_col1, row1_col2 = st.columns(2)
+    with row1_col1:
         countries = sorted(list(region_map.keys()))
-        # 즐겨찾기 연동 로직 적용
+        # 즐겨찾기 선택 시 국가 자동 연동 (TIMKEN=미국, IKO=일본)
         default_idx = countries.index(fav_data["country"]) if fav_data["country"] in countries else 0
         selected_country = st.selectbox("출발 국가", countries, index=default_idx)
         if fav_data["addr"]:
-            st.caption(f"🏠 발송지: {fav_data['addr']}")
+            st.caption(f"🏠 상세 주소: {fav_data['addr']}")
             
-    with col_weight:
+    with row1_col2:
         weight_input = st.number_input("화물 중량 (kg)", min_value=0.5, value=10.0, step=0.1)
 
-    # 3. 유류할증료 및 계산 버튼 (나란히 배치)
-    col_fuel, col_btn = st.columns([1, 1])
-    
-    with col_fuel:
+    # 3. 유류할증료 / 계산 버튼 (수평 배치 및 높이 정렬)
+    row2_col1, row2_col2 = st.columns(2)
+    with row2_col1:
         fuel_rate = st.number_input("유류할증료 (%)", value=41.75, step=0.01)
         
-    with col_btn:
+    with row2_col2:
+        # 버튼과 입력창 높이를 맞추기 위해 상단 마진이 포함된 CSS 적용됨
         calc_button = st.button("🚀 예측 운임 계산하기")
 
-    # --- 계산 및 결과 출력 ---
+    # --- 계산 실행 및 결과 ---
     if calc_button:
         target_region = region_map.get(selected_country, "지역 A")
-        # 적용 지역 노출
+        # 계산 버튼 누를 때만 적용 지역 표시
         st.success(f"✅ 확인된 적용 요금 지역: {target_region}")
         
         ip_val, ip_gb, ip_w = calculate_fare(df_ip, weight_input, target_region)
         ie_val, ie_gb, ie_w = calculate_fare(df_ie, weight_input, target_region)
         
         st.divider()
-        res_col1, res_col2 = st.columns(2)
+        res_c1, res_c2 = st.columns(2)
         
-        with res_col1:
+        with res_c1:
             with st.container(border=True):
-                st.markdown('<p style="color:#4D148C; font-weight:bold; font-size:1.3rem;">🚀 Priority (IP)</p>', unsafe_allow_html=True)
+                st.markdown('<p style="color:#4D148C; font-size:1.3rem;">🚀 International Priority (IP)</p>', unsafe_allow_html=True)
                 if ip_val:
                     total_ip = ip_val * (1 + fuel_rate/100)
-                    st.metric("최종 예상액", f"{int(total_ip):,.0f} 원")
+                    st.metric("최종 예상 합계", f"{int(total_ip):,.0f} 원")
                     st.caption(f"청구 중량: {ip_w}kg | 기본 운임: {int(ip_val):,.0f}원")
                 else: st.warning("데이터 없음")
 
-        with res_col2:
+        with res_c2:
             with st.container(border=True):
-                st.markdown('<p style="color:#4D148C; font-weight:bold; font-size:1.3rem;">🐢 Economy (IE)</p>', unsafe_allow_html=True)
+                st.markdown('<p style="color:#4D148C; font-size:1.3rem;">🐢 International Economy (IE)</p>', unsafe_allow_html=True)
                 if ie_val:
                     total_ie = ie_val * (1 + fuel_rate/100)
                     diff = (total_ip - total_ie) if ip_val else 0
-                    st.metric("최종 예상액", f"{int(total_ie):,.0f} 원", delta=f"-{int(diff):,.0f}원" if diff > 0 else None)
+                    st.metric("최종 예상 합계", f"{int(total_ie):,.0f} 원", delta=f"-{int(diff):,.0f}원" if diff > 0 else None)
                     st.caption(f"청구 중량: {ie_w}kg | 기본 운임: {int(ie_val):,.0f}원")
                 else: st.info("IE 미지원 구간")
 
 st.divider()
-st.caption("© 2026 Dongmyeong Bearing | 제작: 서주영 대리")
+st.caption("© 2026 Dongmyeong Bearing | 제작: AI TFT 서주영 대리")
