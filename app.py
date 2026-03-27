@@ -139,7 +139,7 @@ else:
 
     c3, c4 = st.columns(2)
     with c3:
-        fuel_rate = st.number_input("유류할증료 (%)", value=41.75, step=0.01, help="FEDEX 사이트에서 확인")
+        fuel_rate = st.number_input("유류할증료 (%)", value=41.75, step=0.01, help="주마다 변경되므로 사이트에서 정확한 확인이 필요합니다.")
     with c4:
         calc_btn = st.button("🚀 예측 운임 계산하기")
 
