@@ -125,7 +125,7 @@ def calculate_fare(df, weight, region_col):
 # --- 화면 구성 ---
 df_ip, df_ie, region_map = load_all_data()
 
-st.markdown('<h1 class="main-title">✈️ FEDEX 계산기</h1>', unsafe_allow_html=True)
+st.markdown('<h1 class="main-title">✈️ FEDEX 항공운임 계산기</h1>', unsafe_allow_html=True)
 st.markdown('<div class="dest-info">도착지: 동명베아링 ｜ 부산 사상구 새벽로215번길 123</div>', unsafe_allow_html=True)
 
 if df_ip is None:
