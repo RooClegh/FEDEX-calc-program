@@ -10,11 +10,11 @@ st.set_page_config(page_title="동명베아링 FEDEX 계산기", layout="centere
 # CSS: 제목 크기(90px) 및 버튼/입력창 수평 정렬
 st.markdown("""
     <style>
-    /* 제목: 90px로 대폭 확대 및 중앙 정렬 */
+    /* 제목: 50px로 대폭 확대 및 중앙 정렬 */
     .main-title { 
         color: #ffffff !important; 
         font-weight: bold; 
-        font-size: 70px !important; 
+        font-size: 50px !important; 
         text-align: center;
         margin-top: -30px;
         margin-bottom: 5px;
