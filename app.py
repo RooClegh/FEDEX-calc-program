@@ -4,62 +4,39 @@ import os
 import math
 import re
 
-# 1. 페이지 설정 (중앙 집중형으로 늘어짐 방지)
+# 1. 페이지 설정
 st.set_page_config(page_title="동명베아링 FEDEX 계산기", layout="centered")
 
-# CSS: 제목 크기(90px) 및 버튼/입력창 수평 정렬
+# CSS: 대왕 제목 및 수평 정렬
 st.markdown("""
     <style>
-    /* 제목: 50px로 대폭 확대 및 중앙 정렬 */
     .main-title { 
         color: #ffffff !important; 
         font-weight: bold; 
-        font-size: 50px !important; 
+        font-size: 80px !important; 
         text-align: center;
         margin-top: -30px;
         margin-bottom: 5px;
-        line-height: 1.1;
     }
-    
-    /* 도착지 정보: 중앙 슬림 디자인 */
     .dest-info {
         color: #ffffff !important;
         border-left: 5px solid #FF6600;
         padding: 5px 15px;
         margin-bottom: 35px;
-        font-size: 1.1rem;
+        font-size: 1rem;
         text-align: center;
         width: fit-content;
         margin-left: auto;
         margin-right: auto;
     }
-
-    /* 모든 텍스트 및 라벨 흰색 고정 */
-    label, .stWrite, .stCaption, p, .stMarkdown {
-        color: #ffffff !important;
-        font-weight: bold !important;
-    }
-
-    /* 버튼 높이를 유류할증료 입력창과 수평으로 일치 */
+    label, p, .stCaption { color: #ffffff !important; font-weight: bold !important; }
     div.stButton > button:first-child {
         background-color: #FF6600 !important;
         color: white !important;
         height: 3.1rem;
         font-weight: bold;
-        border: none;
+        margin-top: 28px;
         width: 100%;
-        margin-top: 28px; /* 입력창 라벨 높이만큼 여백 부여 */
-        font-size: 1.1rem;
-    }
-    
-    div.stButton > button:first-child:hover {
-        background-color: #e65c00 !important;
-    }
-
-    /* 하단 링크 강조 */
-    .footer-link {
-        color: #FF6600 !important;
-        text-decoration: underline;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -70,16 +47,27 @@ FILE_NAME = 'FEDEX_2026.csv'
 def load_all_data():
     if not os.path.exists(FILE_NAME): return None, None, {}
     raw_df = pd.read_csv(FILE_NAME, header=None).fillna("")
+    
+    # --- 지역 맵 추출 로직 강화 ---
     region_map = {}
     for i, row in raw_df.iterrows():
         row_list = [str(val).strip() for val in row.values if str(val).strip()]
         if len(row_list) < 2: continue
+        
         country_name = row_list[0]
-        # 지역 정보 추출 (한 글자 대문자)
+        # 해당 행에서 '대문자 한 글자'인 지역 코드를 모두 찾음
         possible_regions = [v for v in row_list if len(v) == 1 and v.isalpha() and v.isupper()]
+        
         if possible_regions and len(country_name) > 1:
-            region_map[country_name] = f"지역 {possible_regions[-1]}"
+            # 일본(Japan)의 경우 보통 P가 행에 포함되어 있음
+            region_code = possible_regions[-1] 
+            region_map[country_name] = f"지역 {region_code}"
+    
+    # 수동 보정 (만약 엑셀에서 못 읽어올 경우를 대비)
+    if "일본" in region_map:
+        region_map["일본"] = "지역 P"
 
+    # IP/IE 섹션 구분
     ip_idx, ie_idx = -1, -1
     for i, row in raw_df.iterrows():
         row_str = "".join([str(v) for v in row.values])
@@ -102,6 +90,7 @@ def load_all_data():
     df_ie = extract_section(ie_idx + 2, len(raw_df))
     return df_ip, df_ie, region_map
 
+# 요금 계산 함수 (생략 없이 로직 유지)
 def calculate_fare(df, weight, region_col):
     if df.empty or region_col not in df.columns: return None, weight
     target_w = math.ceil(weight * 2) / 2
@@ -123,55 +112,39 @@ def calculate_fare(df, weight, region_col):
         return base, target_w
     return None, target_w
 
-# --- 화면 구성 ---
+# --- 화면 구현 ---
 df_ip, df_ie, region_map = load_all_data()
 
 st.markdown('<p class="main-title">FEDEX 계산기</p>', unsafe_allow_html=True)
 st.markdown('<div class="dest-info">도착지: 동명베아링 ｜ 부산광역시 사상구 새벽로215번길 123</div>', unsafe_allow_html=True)
 
 if df_ip is None:
-    st.error("데이터 파일을 찾을 수 없습니다. (FEDEX_2026.csv)")
+    st.error("데이터 파일을 찾을 수 없습니다.")
 else:
-    # 1. 즐겨찾기 (단독 행)
     fav_options = {
-        "직접 입력 (국가 선택)": {"country": "일본", "addr": ""},
-        "TIMKEN (미국)": {"country": "미국", "addr": "4500 MOUNT PLEASANT ST NW NORTH CANTON, Ohio"},
-        "IKO (일본)": {"country": "일본", "addr": "2-19-19 TAKANAWA MINARO-GU TOKYO"}
+        "직접 입력 (국가 선택)": {"country": "일본"},
+        "TIMKEN (미국)": {"country": "미국"},
+        "IKO (일본)": {"country": "일본"}
     }
-    selected_fav = st.selectbox("⭐ 즐겨찾기 주소 선택", list(fav_options.keys()))
+    selected_fav = st.selectbox("⭐ 즐겨찾기", list(fav_options.keys()))
     fav_data = fav_options[selected_fav]
 
-    # 2. 국가 및 중량 (중앙 집중형 2열)
     c1, c2 = st.columns(2)
     with c1:
         countries = sorted(list(region_map.keys()))
-        # 엑셀 수정 반영: "미국"이 리스트에 있으면 해당 인덱스 선택
-        try:
-            default_idx = countries.index(fav_data["country"])
-        except ValueError:
-            default_idx = 0
-            
+        default_idx = countries.index(fav_data["country"]) if fav_data["country"] in countries else 0
         selected_country = st.selectbox("출발 국가", countries, index=default_idx)
     with c2:
         weight_input = st.number_input("화물 중량 (kg)", min_value=0.5, value=10.0, step=0.1)
 
-    # 3. 유류할증료 및 계산 버튼 (수평 높이 일치)
     c3, c4 = st.columns(2)
     with c3:
-        fuel_rate = st.number_input(
-            "유류할증료 (%)", 
-            value=41.75, 
-            step=0.01, 
-            help="주마다 변경되므로 FEDEX 사이트에서 확인 바랍니다."
-        )
+        fuel_rate = st.number_input("유류할증료 (%)", value=41.75, step=0.01, help="FEDEX 사이트에서 확인")
     with c4:
         calc_btn = st.button("🚀 예측 운임 계산하기")
 
-    if fav_data["addr"]:
-        st.caption(f"🏠 상세 주소: {fav_data['addr']}")
-
-    # 결과 영역
     if calc_btn:
+        # 일본은 무조건 '지역 P' 열을 참조하도록 확정
         target_region = region_map.get(selected_country, "지역 A")
         st.success(f"✅ {selected_country} ({target_region}) 요금 적용")
         
@@ -182,17 +155,16 @@ else:
         res_col1, res_col2 = st.columns(2)
         with res_col1:
             with st.container(border=True):
-                st.markdown('<p style="color:#4D148C; font-size:1.1rem;">🚀 Priority (IP)</p>', unsafe_allow_html=True)
+                st.write("🚀 Priority (IP)")
                 if ip_val:
                     total_ip = ip_val * (1 + fuel_rate/100)
                     st.metric("최종 예상액", f"{int(total_ip):,.0f} 원")
         with res_col2:
             with st.container(border=True):
-                st.markdown('<p style="color:#4D148C; font-size:1.1rem;">🐢 Economy (IE)</p>', unsafe_allow_html=True)
+                st.write("🐢 Economy (IE)")
                 if ie_val:
                     total_ie = ie_val * (1 + fuel_rate/100)
                     st.metric("최종 예상액", f"{int(total_ie):,.0f} 원")
 
 st.divider()
-st.markdown('🔗 **유류할증료 확인:** <a href="https://www.fedex.com/ko-kr/shipping/surcharges.html" class="footer-link">FEDEX 사이트 바로가기</a>', unsafe_allow_html=True)
 st.caption("© 2026 Dongmyeong Bearing | 제작: AI TFT 서주영 대리")
