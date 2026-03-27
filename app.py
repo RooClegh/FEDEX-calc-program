@@ -115,7 +115,7 @@ def calculate_fare(df, weight, region_col):
 # --- 화면 구현 ---
 df_ip, df_ie, region_map = load_all_data()
 
-st.markdown('<p class="main-title">FEDEX 계산기</p>', unsafe_allow_html=True)
+st.markdown('<p class="main-title">✈️FEDEX 계산기</p>', unsafe_allow_html=True)
 st.markdown('<div class="dest-info">도착지: 동명베아링 ｜ 부산광역시 사상구 새벽로215번길 123</div>', unsafe_allow_html=True)
 
 if df_ip is None:
@@ -167,4 +167,5 @@ else:
                     st.metric("최종 예상액", f"{int(total_ie):,.0f} 원")
 
 st.divider()
+st.markdown('🔗 **유류할증료 확인:** <a href="https://www.fedex.com/ko-kr/shipping/surcharges.html" class="footer-link">FEDEX 사이트 바로가기</a>', unsafe_allow_html=True)
 st.caption("© 2026 Dongmyeong Bearing | 제작: AI TFT 서주영 대리")
