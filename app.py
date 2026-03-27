@@ -14,7 +14,7 @@ st.markdown("""
     .main-title { 
         color: #ffffff !important; 
         font-weight: bold; 
-        font-size: 3.2rem; 
+        font-size: 4rem; 
         text-align: center;
         margin-top: -40px;
         margin-bottom: 10px;
@@ -44,7 +44,7 @@ st.markdown("""
     div.stButton > button:first-child {
         background-color: #FF6600 !important;
         color: white !important;
-        height: 3.1rem;
+        height: 2.8rem;
         font-weight: bold;
         border: none;
         width: 100%;
