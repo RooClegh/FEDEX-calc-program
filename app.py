@@ -7,19 +7,20 @@ import re
 # 1. 페이지 설정
 st.set_page_config(page_title="동명베아링 FEDEX 계산기", layout="centered")
 
-# CSS: 대왕 제목 및 수평 정렬
+# CSS: 시스템 테마 대응 및 레이아웃 유지
 st.markdown("""
     <style>
+    /* 제목: 시스템 글자색을 따르도록 color 삭제, 크기와 정렬만 유지 */
     .main-title { 
-        color: #ffffff !important; 
         font-weight: bold; 
         font-size: 40px !important; 
         text-align: center;
         margin-top: -30px;
         margin-bottom: 5px;
     }
+    
+    /* 도착지 정보: 테두리색만 강조하고 글자색은 시스템에 맡김 */
     .dest-info {
-        color: #ffffff !important;
         border-left: 5px solid #FF6600;
         padding: 5px 15px;
         margin-bottom: 35px;
@@ -29,7 +30,8 @@ st.markdown("""
         margin-left: auto;
         margin-right: auto;
     }
-    label, p, .stCaption { color: #ffffff !important; font-weight: bold !important; }
+
+    /* 버튼 스타일: 배경색은 브랜드 컬러 유지, 글자는 흰색 고정(버튼 배경이 어두우므로) */
     div.stButton > button:first-child {
         background-color: #FF6600 !important;
         color: white !important;
@@ -37,6 +39,15 @@ st.markdown("""
         font-weight: bold;
         margin-top: 28px;
         width: 100%;
+        border: none;
+    }
+
+    /* 기존에 강제로 흰색을 주었던 모든 label, p 태그 설정 삭제 */
+    /* 이제 시스템 설정에 따라 라이트모드에선 검정, 다크모드에선 흰색으로 나옵니다. */
+
+    .footer-link {
+        color: #FF6600 !important;
+        text-decoration: underline;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -48,26 +59,21 @@ def load_all_data():
     if not os.path.exists(FILE_NAME): return None, None, {}
     raw_df = pd.read_csv(FILE_NAME, header=None).fillna("")
     
-    # --- 지역 맵 추출 로직 강화 ---
     region_map = {}
     for i, row in raw_df.iterrows():
         row_list = [str(val).strip() for val in row.values if str(val).strip()]
         if len(row_list) < 2: continue
         
         country_name = row_list[0]
-        # 해당 행에서 '대문자 한 글자'인 지역 코드를 모두 찾음
         possible_regions = [v for v in row_list if len(v) == 1 and v.isalpha() and v.isupper()]
         
         if possible_regions and len(country_name) > 1:
-            # 일본(Japan)의 경우 보통 P가 행에 포함되어 있음
             region_code = possible_regions[-1] 
             region_map[country_name] = f"지역 {region_code}"
     
-    # 수동 보정 (만약 엑셀에서 못 읽어올 경우를 대비)
     if "일본" in region_map:
         region_map["일본"] = "지역 P"
 
-    # IP/IE 섹션 구분
     ip_idx, ie_idx = -1, -1
     for i, row in raw_df.iterrows():
         row_str = "".join([str(v) for v in row.values])
@@ -90,7 +96,6 @@ def load_all_data():
     df_ie = extract_section(ie_idx + 2, len(raw_df))
     return df_ip, df_ie, region_map
 
-# 요금 계산 함수 (생략 없이 로직 유지)
 def calculate_fare(df, weight, region_col):
     if df.empty or region_col not in df.columns: return None, weight
     target_w = math.ceil(weight * 2) / 2
@@ -115,7 +120,8 @@ def calculate_fare(df, weight, region_col):
 # --- 화면 구현 ---
 df_ip, df_ie, region_map = load_all_data()
 
-st.markdown('<p class="main-title">✈️FEDEX 계산기</p>', unsafe_allow_html=True)
+# 제목과 정보 출력 (CSS 클래스 적용)
+st.markdown('<p class="main-title">✈️ FEDEX 계산기</p>', unsafe_allow_html=True)
 st.markdown('<div class="dest-info">도착지: 동명베아링 ｜ 부산광역시 사상구 새벽로215번길 123</div>', unsafe_allow_html=True)
 
 if df_ip is None:
@@ -144,7 +150,6 @@ else:
         calc_btn = st.button("🚀 예측 운임 계산하기")
 
     if calc_btn:
-        # 일본은 무조건 '지역 P' 열을 참조하도록 확정
         target_region = region_map.get(selected_country, "지역 A")
         st.success(f"✅ {selected_country} ({target_region}) 요금 적용")
         
